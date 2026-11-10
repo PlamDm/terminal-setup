@@ -3,6 +3,7 @@
 param(
     [switch] $DryRun,
     [switch] $OnlyCodex,
+    [switch] $NoActivate,
     [ValidatePattern('^[A-Za-z]:[\\/][A-Za-z0-9_\\/-]+$')]
     [string] $PlaygroundRoot = (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'playground'),
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._/-]*$')]
@@ -235,7 +236,11 @@ if ($DryRun) {
     }
     Write-Host '[playground] Install native Codex CLI under install/codex, with config/codex state.'
     Write-Host "[playground] Create CMD and Bash launchers in $binDirectory."
-    Write-Host '[playground] Persist the Windows user PATH and broadcast the environment change.'
+    if ($NoActivate) {
+        Write-Host '[playground] Leave profiles and persistent PATH unchanged; generate manual activation files.'
+    } else {
+        Write-Host '[playground] Persist the Windows user PATH and broadcast the environment change.'
+    }
     exit 0
 }
 if ($env:OS -ne 'Windows_NT' -or -not [Environment]::Is64BitOperatingSystem) {
@@ -270,12 +275,17 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Could not translate the installer path.' }
     $arguments = @('--login', $unixScript.Trim(), '--root', $unixRoot.Trim(), '--rustifiedgit-ref', $RustifiedGitRef)
     if ($OnlyCodex) { $arguments += '--only-codex' }
+    if ($NoActivate) { $arguments += '--no-activate' }
     Invoke-Checked -Program $bash -Arguments $arguments
     Write-WindowsLaunchers
-    Register-WindowsPath
+    if (-not $NoActivate) { Register-WindowsPath }
 } finally {
     foreach ($name in $environmentNames) {
         [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], 'Process')
     }
 }
-Write-Host "[playground] Ready. Restart existing terminals/apps to inherit $binDirectory."
+if ($NoActivate) {
+    Write-Host ('[playground] Ready. Load extra tools in PowerShell with: . "' + $configDirectory + '\shell\env-extra.ps1"')
+} else {
+    Write-Host "[playground] Ready. Restart existing terminals/apps to inherit $binDirectory."
+}

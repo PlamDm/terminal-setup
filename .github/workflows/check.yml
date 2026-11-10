@@ -32,6 +32,9 @@ jobs:
             exit 1
           }
           .\install.ps1 -DryRun
+      - name: Preview installation without profile or persistent PATH changes
+        shell: powershell
+        run: .\install.ps1 -DryRun -NoActivate
   windows-rustifiedgit:
     runs-on: windows-latest
     steps:
@@ -61,3 +64,14 @@ jobs:
           }
           install_rustifiedgit
           "$PD_INSTALL/rustifiedgit/bin/rustifiedgit.exe" --version
+      - name: Check generated PowerShell activation without persistent PATH changes
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          PD_ROOT="$PWD/.ci-playground"
+          PD_OS=windows
+          . lib/environment.sh
+          pd_write_environment
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$PWD/tests/check-activation.ps1")" \
+            -ActivationFile "$(cygpath -w "$PD_ROOT/config/shell/env-extra.ps1")" \
+            -ExpectedDirectory "$(cygpath -w "$PD_ROOT/bin")"

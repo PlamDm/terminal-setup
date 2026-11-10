@@ -112,6 +112,47 @@ already installed commit, its binary is reused. A failed build leaves the
 previous executable and recorded revision intact. Close RustifiedGit before
 replacing its executable on Windows.
 
+## Add tools to an existing terminal setup
+
+Use manual activation to install the tools without registering shell hooks or
+changing your persistent user/desktop PATH:
+
+```sh
+bash install.sh --no-activate
+source "$HOME/playground/config/shell/env-extra.sh"
+```
+
+The source file works in Bash and Zsh. It appends the managed commands to PATH,
+so existing commands keep priority and missing tools become available. Source
+it in your current terminal, or add that source line to your existing shell
+profile to load it in future sessions. Repeated sourcing does not duplicate
+the PATH entry.
+
+For Fish:
+
+```fish
+source "$HOME/playground/config/shell/env-extra.fish"
+```
+
+For PowerShell:
+
+```powershell
+.\install.ps1 -NoActivate
+. "$HOME\playground\config\shell\env-extra.ps1"
+```
+
+You can keep using your current terminal emulator, shell settings and tool
+configuration. The installer still installs its isolated copies; the extra
+source files control which commands your session finds. To explicitly use a
+managed version when another version is installed, invoke its absolute launcher,
+such as `~/playground/bin/yazi`.
+
+The regular `config/shell/env.sh` instead puts managed commands first. Manual
+activation does not remove hooks or PATH entries added by an earlier install;
+source the extra file after any existing setup hook to give existing tools
+priority in that session. Use your chosen root in these paths if you supplied
+`--root` or `-PlaygroundRoot`.
+
 ## Configuration and PATH
 
 Launchers keep configuration under `playground/config`:

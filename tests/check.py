@@ -56,6 +56,15 @@ class PlaygroundChecks(unittest.TestCase):
         self.assertNotIn("Create an isolated Homebrew", result.stdout)
         self.assertNotIn("Build https://", result.stdout)
 
+    def test_manual_activation_preview_leaves_root_absent(self):
+        with tempfile.TemporaryDirectory(prefix="terminal-preview-") as directory:
+            target = Path(directory) / "not-installed"
+            result = subprocess.run([BASH, str(ROOT / "install.sh"), "--dry-run", "--no-activate",
+                                     "--root", str(target)], capture_output=True, text=True, check=True)
+            self.assertIn("Leave profiles and persistent PATH unchanged", result.stdout)
+            self.assertNotIn("Register " + str(target), result.stdout)
+            self.assertFalse(target.exists())
+
     def test_invalid_arguments_fail(self):
         for arguments in (
             ["--wat"], ["--root"], ["--root", "relative"],
@@ -134,6 +143,35 @@ pd_write_launcher rustifiedgit "$PD_ROOT/install/rustifiedgit/bin/rustifiedgit"
             argument = "repo's directory; $(must-not-run)"
             output = subprocess.check_output([str(playground / "bin/rustifiedgit"), "-p", argument], text=True)
             self.assertEqual(output.splitlines(), ["--use-config-dir", str(playground / "config/rustifiedgit"), "-p", argument])
+
+    def test_extra_activation_keeps_existing_commands_first_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory(prefix="terminal-extra-") as directory:
+            base = Path(directory)
+            playground = base / "play ground's"
+            existing = base / "existing"
+            executable(existing / "yazi", "#!/bin/sh\nexit 0\n")
+            executable(playground / "bin/yazi", "#!/bin/sh\nexit 0\n")
+            executable(playground / "bin/terminal-extra-fixture", "#!/bin/sh\nexit 0\n")
+            generate = 'set -eu; PD_ROOT=$1; . "$2/lib/environment.sh"; pd_write_environment'
+            subprocess.run([BASH, "-c", generate, "check", str(playground), str(ROOT)], check=True)
+            probe = '. "$1"; . "$1"; command -v yazi; command -v terminal-extra-fixture; printf "%s\\n" "$PATH"'
+            environment = dict(os.environ, PATH=str(existing) + os.pathsep + str(playground / "bin") + os.pathsep + os.environ["PATH"])
+            shells = {BASH, "/bin/bash"}
+            if shutil.which("zsh"):
+                shells.add(shutil.which("zsh"))
+            for shell in shells:
+                result = subprocess.check_output([shell, "-c", probe, "check", str(playground / "config/shell/env-extra.sh")],
+                                                 env=environment, text=True).splitlines()
+                self.assertEqual(result[0], str(existing / "yazi"))
+                self.assertEqual(result[1], str(playground / "bin/terminal-extra-fixture"))
+                entries = result[2].split(os.pathsep)
+                self.assertEqual(entries[-1], str(playground / "bin"))
+                self.assertEqual(entries.count(str(playground / "bin")), 1)
+            powershell = shutil.which("pwsh")
+            if powershell:
+                subprocess.run([powershell, "-NoProfile", "-File", str(ROOT / "tests/check-activation.ps1"),
+                                "-ActivationFile", str(playground / "config/shell/env-extra.ps1"),
+                                "-ExpectedDirectory", str(playground / "bin")], check=True)
 
     def test_rustifiedgit_build_cache_and_failed_update_keep_the_previous_binary(self):
         with tempfile.TemporaryDirectory(prefix="terminal-build-") as directory:
@@ -295,6 +333,26 @@ chmod +x "$CODEX_INSTALL_DIR/codex"
             self.assertIn("--appdir=" + str(playground / "install/apps"), calls)
             self.assertEqual((playground / "config/codex/packages").resolve(),
                              (playground / "install/codex/packages").resolve())
+            # A PC with an existing terminal can install without any home hooks.
+            manual_user = base / "manual-user"
+            manual_user.mkdir()
+            existing_profile = manual_user / ".zshrc"
+            existing_profile.write_bytes(b"# keep this profile exactly\n")
+            before = {str(path.relative_to(manual_user)): path.read_bytes()
+                      for path in manual_user.rglob("*") if path.is_file()}
+            result = subprocess.run(
+                [BASH, str(ROOT / "install.sh"), "--no-activate", "--root", str(playground)],
+                env=dict(environment, PD_USER_HOME=str(manual_user), XDG_CONFIG_HOME=str(manual_user / ".config")),
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            after = {str(path.relative_to(manual_user)): path.read_bytes()
+                     for path in manual_user.rglob("*") if path.is_file()}
+            self.assertEqual(after, before)
+            self.assertFalse((manual_user / ".config").exists())
+            self.assertIn("env-extra.sh", result.stdout)
+            for name in ("env-extra.sh", "env-extra.fish", "env-extra.ps1"):
+                self.assertTrue((playground / "config/shell" / name).is_file())
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ PD_REPO="https://github.com/PlamDm/RustifiedGit.git"
 PD_REF="7a2be2ebfa45cfc5be78e788a820ee145953f36b"
 PD_DRY_RUN=0
 PD_ONLY_CODEX=0
+PD_ACTIVATE=1
 PD_PREVIEW_OS=""
 PD_TEMP=""
 
@@ -24,6 +25,7 @@ Registers playground/bin on your user PATH for shells and desktop sessions.
 
   --dry-run            Preview without downloads or filesystem changes.
   --only-codex         Install Codex and register the playground PATH.
+  --no-activate        Install without changing profiles or persistent PATH.
   --root DIR           Choose another absolute playground directory.
   --rustifiedgit-ref REF    Build a commit, tag or branch from PlamDm/RustifiedGit.
   --platform OS        Preview macos, linux or windows; requires --dry-run.
@@ -37,6 +39,7 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --dry-run) PD_DRY_RUN=1; shift ;;
     --only-codex) PD_ONLY_CODEX=1; shift ;;
+    --no-activate) PD_ACTIVATE=0; shift ;;
     --root|--rustifiedgit-ref|--platform)
       [ "$#" -ge 2 ] && [ -n "$2" ] || die "Missing value for $1."
       case "$1" in
@@ -86,15 +89,20 @@ if [ "$PD_DRY_RUN" -eq 1 ]; then
   fi
   log "Install official standalone Codex CLI into $PD_ROOT/install/codex."
   log "Keep Codex config, authentication and package state under $PD_ROOT/config/codex."
-  log "Register $PD_ROOT/bin in Bash, Zsh, Fish and desktop user PATH settings."
-  if [ "$PD_OS" = windows ]; then log "Also update the persistent Windows user PATH for PowerShell/CMD/apps."; fi
+  if [ "$PD_ACTIVATE" -eq 1 ]; then
+    log "Register $PD_ROOT/bin in Bash, Zsh, Fish and desktop user PATH settings."
+    if [ "$PD_OS" = windows ]; then log "Also update the persistent Windows user PATH for PowerShell/CMD/apps."; fi
+  else
+    log "Leave profiles and persistent PATH unchanged; generate env-extra.sh, env-extra.fish and env-extra.ps1 for manual activation."
+  fi
   exit 0
 fi
 
 if [ "$PD_OS" = windows ] && [ "${PD_MSYS2_READY:-}" != 1 ]; then
   have powershell.exe && have cygpath || die "Run install.ps1 from Windows PowerShell."
   pd_windows_args=()
-  if [ "$PD_ONLY_CODEX" -eq 1 ]; then pd_windows_args=(-OnlyCodex); fi
+  if [ "$PD_ONLY_CODEX" -eq 1 ]; then pd_windows_args+=(-OnlyCodex); fi
+  if [ "$PD_ACTIVATE" -eq 0 ]; then pd_windows_args+=(-NoActivate); fi
   exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File \
     "$(cygpath -w "$PD_DIR/install.ps1")" -PlaygroundRoot "$(cygpath -w "$PD_ROOT")" \
     -RustifiedGitRef "$PD_REF" "${pd_windows_args[@]}"
@@ -203,9 +211,13 @@ if [ "$PD_ONLY_CODEX" -ne 1 ]; then
   register_command wezterm "$PD_WEZTERM"
   if [ ! -e "$PD_ROOT/config/wezterm/wezterm.lua" ]; then cp "$PD_DIR/wezterm.lua" "$PD_ROOT/config/wezterm/wezterm.lua"; fi
 fi
-pd_register_path
+if [ "$PD_ACTIVATE" -eq 1 ]; then pd_register_path; fi
 "$PD_BIN/codex" --version
-log "Ready. Restart existing terminals/apps to inherit $PD_BIN."
+if [ "$PD_ACTIVATE" -eq 1 ]; then
+  log "Ready. Restart existing terminals/apps to inherit $PD_BIN."
+else
+  log "Ready. Load extra tools in Bash/Zsh with: . \"$PD_ROOT/config/shell/env-extra.sh\""
+fi
 if [ "$PD_ONLY_CODEX" -ne 1 ]; then
   for pd_cmd in bash tmux yazi rustifiedgit fzf btop wezterm; do log "$pd_cmd -> $PD_BIN/$pd_cmd"; done
 fi

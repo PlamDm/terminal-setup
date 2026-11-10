@@ -6,6 +6,7 @@ pd_quote() {
 }
 
 pd_write_environment() {
+  local pd_ps_bin
   mkdir -p "$PD_ROOT/config/shell" "$PD_ROOT/config/bash" "$PD_ROOT/config/tmux" \
     "$PD_ROOT/config/rustifiedgit" "$PD_ROOT/config/yazi" "$PD_ROOT/config/btop" \
     "$PD_ROOT/config/fzf" "$PD_ROOT/config/codex" "$PD_ROOT/config/wezterm" \
@@ -23,8 +24,44 @@ export PATH="$_pd_playground_path"
 unset _pd_playground_bin _pd_playground_path
 EOF
   } > "$PD_ROOT/config/shell/env.sh"
+  {
+    printf '# Extra tools for an existing Bash/Zsh/POSIX shell; existing commands keep priority.\n'
+    printf '_pd_playground_bin=%s\n' "$(pd_quote "$PD_ROOT/bin")"
+    cat <<'EOF'
+_pd_playground_path="$(printf '%s\n' "$PATH" | awk -v pd_bin="$_pd_playground_bin" '
+  BEGIN { FS = ":" }
+  { out = ""; for (i = 1; i <= NF; i++)
+      if ($i != "" && $i != pd_bin) out = out (out == "" ? "" : ":") $i;
+    print out (out == "" ? "" : ":") pd_bin }')"
+export PATH="$_pd_playground_path"
+unset _pd_playground_bin _pd_playground_path
+EOF
+  } > "$PD_ROOT/config/shell/env-extra.sh"
   printf 'fish_add_path --move --prepend --path "%s"\n' \
     "$PD_ROOT/bin" > "$PD_ROOT/config/shell/env.fish"
+  printf 'fish_add_path --move --append --path "%s"\n' \
+    "$PD_ROOT/bin" > "$PD_ROOT/config/shell/env-extra.fish"
+  if [ "${PD_OS:-}" = windows ]; then
+    pd_ps_bin="$(cygpath -w "$PD_ROOT/bin")"
+  else
+    pd_ps_bin="$PD_ROOT/bin"
+  fi
+  pd_ps_bin="$(printf '%s' "$pd_ps_bin" | sed "s/'/''/g")"
+  {
+    printf '# Extra tools for the current PowerShell session; persistent PATH is untouched.\n& {\n'
+    printf '  $terminalSetupBin = %s\n' "'$pd_ps_bin'"
+    cat <<'EOF'
+  $terminalSetupSeparator = [IO.Path]::PathSeparator
+  $terminalSetupComparison = if ($terminalSetupSeparator -eq ';') {
+    [StringComparison]::OrdinalIgnoreCase
+  } else { [StringComparison]::Ordinal }
+  $terminalSetupEntries = @($env:PATH -split [regex]::Escape([string]$terminalSetupSeparator) | Where-Object {
+    $_ -and -not [string]::Equals($_.TrimEnd([char[]]'\/'), $terminalSetupBin.TrimEnd([char[]]'\/'), $terminalSetupComparison)
+  })
+  $env:PATH = (@($terminalSetupEntries) + @($terminalSetupBin)) -join $terminalSetupSeparator
+}
+EOF
+  } > "$PD_ROOT/config/shell/env-extra.ps1"
   if [ ! -e "$PD_ROOT/config/bash/bashrc" ]; then
     {
       printf '. %s\n' "$(pd_quote "$PD_ROOT/config/shell/env.sh")"
