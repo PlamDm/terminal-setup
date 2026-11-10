@@ -55,14 +55,20 @@ no setup registration or Start menu shortcuts. PowerShell searches conventional
 executables already on `PATH`. When reuse is selected, it also searches fixed
 drives recursively for an `msys64` directory if those checks find nothing.
 If it finds an existing MSYS2, it asks whether
-to reuse it. Answer `y` to use it without downloading another MSYS2;
-the installer adds the required packages to that installation. Answer `n` to
+to reuse it. Answer `y` to use it without downloading another MSYS2.
+**Reused MSYS2 installations are read-only:** the installer does not update,
+install or remove their packages. It checks prerequisites before downloading
+tools and stops with a list of missing packages if necessary. Install those
+prerequisites yourself, or answer `n` to
 keep the tools setup self-contained under the selected playground folder.
 For unattended installs, pass `-UseExistingMsys2` to find and reuse it
 automatically; use `-Msys2Root C:\msys64` to select a specific installation.
 The Bash entry point accepts
 `--use-existing-msys2` and `--msys2-root /c/msys64` as well. The selected path
 is saved in `config/path/msys2-root.txt` for WezTerm and generated launchers.
+The playground folder must be outside the reused MSYS2 installation. Setup
+bypasses its shell startup files and keeps temporary files and a separate
+build-time home under the playground root.
 Its UCRT64 packages supply Git
 helpers, Rust and their library dependencies; Bash and tmux use MSYS2. Yazi 26.9.1
 is compiled with a small cache/state directory override because the stock Windows
@@ -199,7 +205,9 @@ installed folder containing credentials or session history.
 
 ## Updates and sign-in
 
-Rerun the installer with the same root to update packages and portable tools.
+Rerun the installer with the same root to update managed packages and portable tools.
+Reused MSYS2 installations remain unchanged on reruns; manage their packages
+separately. Only the playground-managed MSYS2 is upgraded automatically.
 Existing projects and customized configuration are preserved. RustifiedGit is
 built from [PlamDm/RustifiedGit](https://github.com/PlamDm/RustifiedGit) at the
 pinned revision `7a2be2ebfa45cfc5be78e788a820ee145953f36b`. To update it to `main`:

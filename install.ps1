@@ -179,7 +179,10 @@ function Select-Msys2Root {
         if (-not (Test-Msys2Installation -Path $Msys2Root)) {
             throw "The requested MSYS2 root does not contain bash, pacman and cygpath: $Msys2Root"
         }
-        return [IO.Path]::GetFullPath($Msys2Root).TrimEnd('\', '/')
+        return [pscustomobject]@{
+            Root = [IO.Path]::GetFullPath($Msys2Root).TrimEnd('\', '/')
+            ReadOnly = $true
+        }
     }
     $canPrompt = $Host.Name -eq 'ConsoleHost' -and $env:CI -notin @('true', '1')
     $detectedRoot = Find-SystemMsys2 -SearchFixedDrives:($UseExistingMsys2 -or $canPrompt)
@@ -188,17 +191,49 @@ function Select-Msys2Root {
             throw 'No existing MSYS2 installation was found on the fixed drives. Run without -UseExistingMsys2 to install a private copy.'
         }
         Write-Host "[playground] Reusing system MSYS2 at $detectedRoot."
-        return $detectedRoot
+        return [pscustomobject]@{ Root = $detectedRoot; ReadOnly = $true }
     }
     if ($detectedRoot -and $canPrompt) {
         $answer = Read-Host "Found MSYS2 at $detectedRoot. Reuse it? [y/N]"
         if ($answer -match '^(?i:y|yes)$') {
             Write-Host "[playground] Reusing system MSYS2 at $detectedRoot."
-            return $detectedRoot
+            return [pscustomobject]@{ Root = $detectedRoot; ReadOnly = $true }
         }
         Write-Host "[playground] Installing a separate MSYS2 under $DefaultRoot."
     }
-    return $DefaultRoot
+    return [pscustomobject]@{ Root = $DefaultRoot; ReadOnly = $false }
+}
+function ConvertTo-Msys2Path {
+    param([string] $Path)
+    $converted = & (Join-Path $msysRoot 'usr\bin\cygpath.exe') -u $Path
+    if ($LASTEXITCODE -ne 0) { throw "Could not translate path for MSYS2: $Path" }
+    return $converted.Trim()
+}
+function Initialize-Msys2 {
+    param([bool] $ReadOnly)
+    $bash = Join-Path $msysRoot 'usr\bin\bash.exe'
+    $env:PD_MSYS2_READ_ONLY = if ($ReadOnly) { '1' } else { '0' }
+    if ($ReadOnly) {
+        $env:PATH = "$msysRoot\ucrt64\bin;$msysRoot\usr\bin;$env:PATH"
+        $env:BASH_ENV = $null
+        $homeDirectory = Join-Path $PlaygroundRoot 'state\msys2-home'
+        [IO.Directory]::CreateDirectory($homeDirectory) | Out-Null
+        $env:HOME = ConvertTo-Msys2Path -Path $homeDirectory
+        $env:PD_USER_HOME = ConvertTo-Msys2Path -Path ([Environment]::GetFolderPath('UserProfile'))
+        $env:TMPDIR = ConvertTo-Msys2Path -Path (Join-Path $PlaygroundRoot 'tmp')
+        if (-not $OnlyCodex) {
+            Write-Host "[playground] Existing MSYS2 is read-only; checking prerequisites at $msysRoot."
+            $checkScript = ConvertTo-Msys2Path -Path (Join-Path $PSScriptRoot 'lib\msys2.sh')
+            $unixMsysRoot = ConvertTo-Msys2Path -Path $msysRoot
+            Invoke-Checked -Program $bash -Arguments @('--noprofile', '--norc', $checkScript, $unixMsysRoot)
+        }
+    } else {
+        Invoke-Checked -Program $bash -Arguments @('--login', '-c', 'true')
+        if (-not $OnlyCodex) {
+            & $bash --login -c 'pacman --noconfirm -Syu'
+            Invoke-Checked -Program $bash -Arguments @('--login', '-c', 'pacman --noconfirm -Syu')
+        }
+    }
 }
 function Install-Codex {
     $codexHome = Join-Path $configDirectory 'codex'
@@ -386,7 +421,8 @@ if ($DryRun) {
     Write-Host "[playground] Preview only; root: $PlaygroundRoot"
     if (-not $OnlyCodex) {
         Write-Host "[playground] Install MSYS2 in $msysRoot by default; use -UseExistingMsys2 or -Msys2Root to reuse an existing installation."
-        Write-Host '[playground] Install Bash, tmux, git, Rust and fzf inside MSYS2; build Yazi with portable cache/state overrides.'
+        Write-Host '[playground] Reused MSYS2 is read-only: check required packages without upgrades or installs; stop if prerequisites are missing.'
+        Write-Host '[playground] Install Bash, tmux, git, Rust and fzf only in managed MSYS2; build Yazi with portable cache/state overrides.'
         Write-Host '[playground] Download portable WezTerm and btop4win under install/.'
         Write-Host '[playground] Add Yazi preview/search helpers, portable PowerShell 7, GitHub Copilot CLI, VS Code, Notepad++ and a private Nerd Font.'
         Write-Host "[playground] Build PlamDm/RustifiedGit at $RustifiedGitRef."
@@ -403,15 +439,23 @@ if ($DryRun) {
 if ($env:OS -ne 'Windows_NT' -or -not [Environment]::Is64BitOperatingSystem) {
     throw 'This bootstrap requires 64-bit Windows. On macOS/Linux use install.sh.'
 }
-$msysRoot = Select-Msys2Root -DefaultRoot $msysRoot
+$msys2 = Select-Msys2Root -DefaultRoot $msysRoot
+$msysRoot = $msys2.Root
 if ($msysRoot -match '\s') { throw 'MSYS2 must be installed in a path without whitespace.' }
+if ($msys2.ReadOnly) {
+    $normalizedRoot = [IO.Path]::GetFullPath($PlaygroundRoot).TrimEnd('\', '/')
+    if ($normalizedRoot.Equals($msysRoot, [StringComparison]::OrdinalIgnoreCase) -or
+        $normalizedRoot.StartsWith($msysRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'PlaygroundRoot must be outside the read-only MSYS2 installation.'
+    }
+}
 foreach ($directory in @($installRoot, $binDirectory, $configDirectory, $cacheDirectory, (Join-Path $PlaygroundRoot 'tmp'))) {
     [IO.Directory]::CreateDirectory($directory) | Out-Null
 }
 [IO.Directory]::CreateDirectory((Join-Path $configDirectory 'path')) | Out-Null
 [IO.File]::WriteAllText((Join-Path $configDirectory 'path\msys2-root.txt'), $msysRoot + [Environment]::NewLine)
 Install-Msys2
-$environmentNames = @('MSYSTEM', 'CHERE_INVOKING', 'MSYS2_PATH_TYPE', 'PD_MSYS2_READY', 'PD_WEZTERM_EXE', 'PD_BTOP_EXE', 'PD_COPILOT_EXE', 'PD_CODE_EXE', 'PD_NOTEPAD_EXE', 'PD_PWSH_EXE', 'TEMP', 'TMP')
+$environmentNames = @('MSYSTEM', 'CHERE_INVOKING', 'MSYS2_PATH_TYPE', 'PD_MSYS2_READY', 'PD_MSYS2_READ_ONLY', 'PD_WEZTERM_EXE', 'PD_BTOP_EXE', 'PD_COPILOT_EXE', 'PD_CODE_EXE', 'PD_NOTEPAD_EXE', 'PD_PWSH_EXE', 'TEMP', 'TMP', 'TMPDIR', 'HOME', 'PD_USER_HOME', 'BASH_ENV', 'PATH')
 $savedEnvironment = @{}
 foreach ($name in $environmentNames) { $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 try {
@@ -422,11 +466,8 @@ try {
     $env:TEMP = Join-Path $PlaygroundRoot 'tmp'
     $env:TMP = $env:TEMP
     $bash = Join-Path $msysRoot 'usr\bin\bash.exe'
-    $cygpath = Join-Path $msysRoot 'usr\bin\cygpath.exe'
-    Invoke-Checked -Program $bash -Arguments @('--login', '-c', 'true')
+    Initialize-Msys2 -ReadOnly $msys2.ReadOnly
     if (-not $OnlyCodex) {
-        & $bash --login -c 'pacman --noconfirm -Syu'
-        Invoke-Checked -Program $bash -Arguments @('--login', '-c', 'pacman --noconfirm -Syu')
         $env:PD_WEZTERM_EXE = Install-ZipTool -Repo 'wezterm/wezterm' -Pattern '^WezTerm-windows-.*\.zip$' -Name 'wezterm' -Executable 'wezterm.exe'
         $env:PD_BTOP_EXE = Install-ZipTool -Repo 'aristocratos/btop4win' -Pattern '^btop4win-x64\.zip$' -Name 'btop' -Executable 'btop4win.exe'
         Configure-Btop -Executable $env:PD_BTOP_EXE
@@ -434,24 +475,22 @@ try {
         Install-PortableWindowsTools
     }
     Install-Codex
-    $unixRoot = & $cygpath -u $PlaygroundRoot
-    if ($LASTEXITCODE -ne 0) { throw 'Could not translate the playground root.' }
-    $unixMsysRoot = & $cygpath -u $msysRoot
-    if ($LASTEXITCODE -ne 0) { throw 'Could not translate the selected MSYS2 root.' }
-    $unixScript = & $cygpath -u (Join-Path $PSScriptRoot 'install.sh')
-    if ($LASTEXITCODE -ne 0) { throw 'Could not translate the installer path.' }
-    $arguments = @('--login', $unixScript.Trim(), '--root', $unixRoot.Trim(), '--rustifiedgit-ref', $RustifiedGitRef, '--msys2-root', $unixMsysRoot.Trim())
+    $unixRoot = ConvertTo-Msys2Path -Path $PlaygroundRoot
+    $unixMsysRoot = ConvertTo-Msys2Path -Path $msysRoot
+    $unixScript = ConvertTo-Msys2Path -Path (Join-Path $PSScriptRoot 'install.sh')
+    $arguments = if ($msys2.ReadOnly) { @('--noprofile', '--norc') } else { @('--login') }
+    $arguments += @($unixScript, '--root', $unixRoot, '--rustifiedgit-ref', $RustifiedGitRef, '--msys2-root', $unixMsysRoot)
     if ($OnlyCodex) { $arguments += '--only-codex' }
     if ($NoActivate) { $arguments += '--no-activate' } else { $arguments += '--activate' }
     Invoke-Checked -Program $bash -Arguments $arguments
     Update-WezTermMsys2Config
     Write-WindowsLaunchers
-    if (-not $NoActivate) { Register-WindowsPath }
 } finally {
     foreach ($name in $environmentNames) {
         [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], 'Process')
     }
 }
+if (-not $NoActivate) { Register-WindowsPath }
 if ($NoActivate) {
     Write-Host ('[playground] Ready. Load extra tools in PowerShell with: . "' + $configDirectory + '\shell\env-extra.ps1"')
 } else {

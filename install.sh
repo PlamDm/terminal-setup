@@ -30,8 +30,8 @@ By default, leaves profiles and persistent PATH unchanged. Source env-extra.sh.
   --no-activate        Install without changing profiles or persistent PATH.
   --activate           Opt in to shell hooks and desktop user PATH registration.
   --root DIR           Choose another absolute playground directory.
-  --use-existing-msys2 Reuse a detected system MSYS2 on Windows.
-  --msys2-root DIR     Use this existing MSYS2 root on Windows.
+  --use-existing-msys2 Reuse a detected system MSYS2 without changing its packages.
+  --msys2-root DIR     Use this existing MSYS2 root read-only on Windows.
   --rustifiedgit-ref REF    Build a commit, tag or branch from PlamDm/RustifiedGit.
   --platform OS        Preview macos, linux or windows; requires --dry-run.
   -h, --help           Show help.
@@ -92,7 +92,8 @@ if [ "$PD_DRY_RUN" -eq 1 ]; then
         log "Custom prefixes can require compilation and can exceed 10 minutes." ;;
       windows)
         log "Install MSYS2 at $PD_ROOT/install/msys2 by default; use --use-existing-msys2 or --msys2-root to reuse an existing installation."
-        log "Install bash tmux git file and UCRT64 rust fzf through its pacman."
+        log "Reused MSYS2 is read-only: check required packages without upgrades or installs; stop if prerequisites are missing."
+        log "Install bash tmux git file and UCRT64 rust fzf through pacman only in managed MSYS2."
         log "Build Yazi with portable cache and state directory overrides."
         log "Download portable WezTerm and btop4win under $PD_ROOT/install."
         log "Add Yazi preview/search helpers, portable PowerShell 7, GitHub Copilot CLI, VS Code, Notepad++ and a private Nerd Font."
@@ -153,6 +154,7 @@ trap 'printf "[playground] Failed at line %s. Fix the reported error and rerun.\
 . "$PD_DIR/lib/rustifiedgit.sh"
 . "$PD_DIR/lib/portable.sh"
 . "$PD_DIR/lib/yazi.sh"
+. "$PD_DIR/lib/msys2.sh"
 pd_write_environment
 
 fetch() { curl --fail --location --show-error --retry 3 --connect-timeout 20 "$1" --output "$2"; }
@@ -187,11 +189,7 @@ install_unix_tools() {
 install_windows_tools() {
   [ -x /usr/bin/pacman.exe ] || die "Use install.ps1 to initialize MSYS2."
   [ "$(uname -m)" = x86_64 ] || die "The MSYS2 package set requires x64."
-  /usr/bin/pacman -S --needed --noconfirm bash tmux git file \
-    mingw-w64-ucrt-x86_64-rust mingw-w64-ucrt-x86_64-fzf \
-    mingw-w64-ucrt-x86_64-ffmpeg mingw-w64-ucrt-x86_64-7zip mingw-w64-ucrt-x86_64-jq \
-    mingw-w64-ucrt-x86_64-poppler mingw-w64-ucrt-x86_64-fd mingw-w64-ucrt-x86_64-ripgrep \
-    mingw-w64-ucrt-x86_64-zoxide mingw-w64-ucrt-x86_64-resvg mingw-w64-ucrt-x86_64-imagemagick
+  pd_install_msys2_packages
   export PATH="/ucrt64/bin:/usr/bin:$PATH"
   PD_WEZTERM="$(cygpath -u "$PD_WEZTERM_EXE")"
   PD_BTOP="$(cygpath -u "$PD_BTOP_EXE")"

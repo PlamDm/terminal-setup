@@ -38,6 +38,9 @@ jobs:
       - name: Keep delegated installer PATH changes isolated in manual mode
         shell: powershell
         run: .\tests\check-codex-isolation.ps1
+      - name: Keep reused MSYS2 unchanged and validate prerequisites offline
+        shell: powershell
+        run: .\tests\check-msys2.ps1
       - name: Install verified portable apps and run their native command launchers
         shell: powershell
         env:

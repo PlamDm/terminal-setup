@@ -27,7 +27,7 @@ class PlaygroundChecks(unittest.TestCase):
     def test_shell_syntax(self):
         for shell in {BASH, "/bin/bash"}:
             if Path(shell).is_file():
-                for script in ("install.sh", "lib/environment.sh", "lib/rustifiedgit.sh", "lib/portable.sh", "lib/yazi.sh"):
+                for script in ("install.sh", "lib/environment.sh", "lib/rustifiedgit.sh", "lib/portable.sh", "lib/yazi.sh", "lib/msys2.sh"):
                     subprocess.run([shell, "-n", str(ROOT / script)], check=True)
 
     def test_previews_never_call_installers_or_create_root(self):
