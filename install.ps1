@@ -56,7 +56,12 @@ function Save-Asset {
     } else {
         $checksumAsset = $Release.assets | Where-Object { $_.name -eq ($Asset.name + '.sha256') } | Select-Object -First 1
         if ($checksumAsset) {
-            $checksumText = (Invoke-WebRequest -UseBasicParsing -Uri $checksumAsset.browser_download_url).Content
+            $checksumResponse = Invoke-WebRequest -UseBasicParsing -Uri $checksumAsset.browser_download_url
+            $checksumText = if ($checksumResponse.Content -is [byte[]]) {
+                [Text.Encoding]::UTF8.GetString($checksumResponse.Content)
+            } else {
+                [string]$checksumResponse.Content
+            }
             if ($checksumText -match '\b([a-fA-F0-9]{64})\b') { $expected = $Matches[1] }
         }
     }

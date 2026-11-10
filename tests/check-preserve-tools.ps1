@@ -36,12 +36,43 @@ try {
     [IO.File]::WriteAllText($manifest, "copilot`t$activeCopilot`n")
     $ast = [Management.Automation.Language.Parser]::ParseFile(
         (Join-Path $repository 'install.ps1'), [ref]$null, [ref]$null)
-    foreach ($name in @('Find-InstalledTool', 'Install-ZipTool', 'Install-Codex')) {
+    foreach ($name in @('Find-InstalledTool', 'Install-ZipTool', 'Install-Codex', 'Save-Asset')) {
         $definition = $ast.Find({ param($node)
             $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
         }, $true)
         Set-Item -Path "Function:$name" -Value $definition.Body.GetScriptBlock()
     }
+    [IO.Directory]::CreateDirectory($cacheDirectory) | Out-Null
+    $script:assetFixtureBytes = [Text.Encoding]::UTF8.GetBytes('verified archive fixture')
+    $fixtureSource = Join-Path $root 'fixture-source.zip'
+    [IO.File]::WriteAllBytes($fixtureSource, $script:assetFixtureBytes)
+    $fixtureDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath $fixtureSource).Hash.ToLowerInvariant()
+    $script:assetChecksumBytes = [Text.Encoding]::UTF8.GetBytes("$fixtureDigest  fixture.zip`n")
+    function Invoke-WebRequest {
+        param([string] $Uri, [string] $OutFile, [switch] $UseBasicParsing)
+        if ($Uri -eq 'https://fixture/fixture.zip.sha256') {
+            return [pscustomobject]@{ Content = $script:assetChecksumBytes }
+        }
+        if ($Uri -eq 'https://fixture/fixture.zip') {
+            [IO.File]::WriteAllBytes($OutFile, $script:assetFixtureBytes)
+            return
+        }
+        throw "Unexpected fixture request: $Uri"
+    }
+    $fixtureAsset = [pscustomobject]@{
+        name = 'fixture.zip'
+        digest = $null
+        browser_download_url = 'https://fixture/fixture.zip'
+    }
+    $fixtureChecksum = [pscustomobject]@{
+        name = 'fixture.zip.sha256'
+        browser_download_url = 'https://fixture/fixture.zip.sha256'
+    }
+    $fixtureRelease = [pscustomobject]@{ assets = @($fixtureChecksum) }
+    $verifiedArchive = Save-Asset -Asset $fixtureAsset -Release $fixtureRelease
+    Assert ((Get-FileHash -Algorithm SHA256 -LiteralPath $verifiedArchive).Hash -eq $fixtureDigest) `
+        'Binary checksum asset content was not decoded and verified.'
+
     $script:allowDownload = $false
     $script:releaseCalls = 0
     function Get-GitHubRelease {
@@ -88,4 +119,4 @@ try {
     foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process') }
     if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
 }
-Write-Host 'Existing portable versions and active launchers were preserved; missing tools can be installed.'
+Write-Host 'Existing portable versions and active launchers were preserved; binary checksum files were verified.'
