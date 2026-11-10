@@ -11,8 +11,10 @@ $msysRoot = Join-Path $root 'msys64'
 $PlaygroundRoot = Join-Path $root 'playground'
 $helper = Join-Path $repository 'lib\msys2.sh'
 $OnlyCodex = $false
-$names = @('PD_MSYS2_PRESERVE_INSTALLED', 'PATH', 'BASH_ENV', 'HOME', 'PD_USER_HOME', 'TMPDIR',
-    'PD_MSYS_FIXTURE_LOG', 'PD_MSYS_FIXTURE_PACKAGES', 'PD_MSYS_FIXTURE_QUERY_FAIL', 'PD_MSYS_FIXTURE_CHANGE_EXISTING')
+$names = @('PD_MSYS2_PRESERVE_INSTALLED', 'PD_MSYS2_READ_ONLY', 'PATH', 'BASH_ENV', 'HOME', 'PD_USER_HOME', 'TMPDIR',
+    'PD_MSYS2_READY', 'PD_WEZTERM_EXE', 'PD_BTOP_EXE', 'PD_COPILOT_EXE', 'PD_CODE_EXE', 'PD_NOTEPAD_EXE',
+    'PD_PWSH_EXE', 'PD_OS', 'PD_MSYS_FIXTURE_LOG', 'PD_MSYS_FIXTURE_PACKAGES',
+    'PD_MSYS_FIXTURE_QUERY_FAIL', 'PD_MSYS_FIXTURE_CHANGE_EXISTING')
 $saved = @{}
 foreach ($name in $names) { $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 
@@ -35,10 +37,12 @@ try {
     foreach ($file in Get-ChildItem -LiteralPath $runtimeBin -Filter 'msys-*.dll' -File) {
         Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $msysRoot 'usr\bin')
     }
-    foreach ($name in @('bash', 'sh', 'cygpath', 'mkdir', 'sed', 'cat', 'uname', 'mktemp', 'rm', 'false', 'awk', 'chmod', 'dirname', 'mv', 'env', 'cp')) {
+    foreach ($name in @('bash', 'sh', 'cygpath', 'mkdir', 'sed', 'cat', 'uname', 'mktemp', 'rm', 'false', 'awk', 'grep', 'chmod', 'dirname', 'mv', 'env', 'cp')) {
         Copy-Item -LiteralPath (Join-Path $runtimeBin "$name.exe") -Destination (Join-Path $msysRoot 'usr\bin')
     }
     $testBash = Join-Path $msysRoot 'usr\bin\bash.exe'
+    $originalBash = Join-Path $root 'original-bash.exe'
+    Copy-Item -LiteralPath $testBash -Destination $originalBash
     # Use the runtime mount's spelling so cygpath maps the fixture root to /.
     $msysRoot = (& (Join-Path $msysRoot 'usr\bin\cygpath.exe') -w /).TrimEnd('\', '/')
     $driver = Join-Path $root 'fixture.exe'
@@ -152,6 +156,12 @@ public class Msys2Fixture {
     $calls = [IO.File]::ReadAllLines($env:PD_MSYS_FIXTURE_LOG)
     Assert ($calls.Count -eq 3 -and @($calls | Where-Object { $_ -cne 'pacman -Qq' }).Count -eq 0) 'Setup modified existing packages.'
 
+    [IO.File]::WriteAllText($env:PD_MSYS_FIXTURE_LOG, '')
+    Initialize-Msys2 -PreserveInstalled $true -ReadOnly $true
+    Assert ($env:PD_MSYS2_READ_ONLY -eq '1') 'Read-only MSYS2 mode was not passed to Bash.'
+    Assert ([IO.File]::ReadAllText($env:PD_MSYS_FIXTURE_LOG) -eq '') 'Read-only MSYS2 setup queried or modified packages.'
+    Assert ((Get-Msys2Snapshot) -ceq $before) 'Read-only MSYS2 setup changed existing files.'
+
     foreach ($failure in @('dependency-change', 'database')) {
         $env:PD_MSYS_FIXTURE_PACKAGES = ($packages | Where-Object { $_ -ne 'tmux' }) -join "`n"
         $env:PD_MSYS_FIXTURE_QUERY_FAIL = if ($failure -eq 'database') { '1' } else { '0' }
@@ -186,12 +196,17 @@ set -euo pipefail
 . "$1"
 PD_MSYS2_ROOT="$2"
 PD_MSYS2_PRESERVE_INSTALLED="$3"
+PD_MSYS2_READ_ONLY="$4"
 pd_install_msys2_packages
 '@)
-    & $hostBash --noprofile --norc $shellCheck.Replace('\', '/') $helper.Replace('\', '/') $msysRoot.Replace('\', '/') 1
+    & $hostBash --noprofile --norc $shellCheck.Replace('\', '/') $helper.Replace('\', '/') $msysRoot.Replace('\', '/') 1 0
     Assert ($LASTEXITCODE -eq 0) 'Existing Bash package setup failed.'
     Assert ((Get-Msys2Snapshot) -ceq $before) 'Bash package setup changed reused MSYS2.'
     Assert ([IO.File]::ReadAllText($env:PD_MSYS_FIXTURE_LOG).Trim() -ceq 'pacman -Qq') 'Bash package setup ran a modifying command.'
+    [IO.File]::WriteAllText($env:PD_MSYS_FIXTURE_LOG, '')
+    & $hostBash --noprofile --norc $shellCheck.Replace('\', '/') $helper.Replace('\', '/') $msysRoot.Replace('\', '/') 1 1
+    Assert ($LASTEXITCODE -eq 0) 'Read-only Bash package setup failed.'
+    Assert ([IO.File]::ReadAllText($env:PD_MSYS_FIXTURE_LOG) -eq '') 'Read-only Bash package setup queried pacman.'
 
     $rootCheck = Join-Path $root 'root-paths.sh'
     [IO.File]::WriteAllText($rootCheck, @'
@@ -262,11 +277,62 @@ PD_MSYS2_READY=1 "$BASH" "$1/install.sh" --root "$PD_ROOT" --msys2-root "$PD_MSY
     Initialize-Msys2 -PreserveInstalled $selection.PreserveInstalled
     $calls = [IO.File]::ReadAllLines($env:PD_MSYS_FIXTURE_LOG)
     Assert (@($calls | Where-Object { $_ -eq 'bash --login -c pacman --noconfirm -Syu' }).Count -eq 2) 'Managed MSYS2 no longer performs both system upgrade passes.'
-    & $hostBash --noprofile --norc $shellCheck.Replace('\', '/') $helper.Replace('\', '/') $msysRoot.Replace('\', '/') 0
+    & $hostBash --noprofile --norc $shellCheck.Replace('\', '/') $helper.Replace('\', '/') $msysRoot.Replace('\', '/') 0 0
     Assert ($LASTEXITCODE -eq 0) 'Managed Bash package installation failed.'
     Assert (Test-Path -LiteralPath (Join-Path $msysRoot 'usr\bin\installed')) 'Managed MSYS2 did not install required packages.'
+    Copy-Item -LiteralPath $originalBash -Destination $testBash -Force
+
+    foreach ($relative in @('usr\bin\git.exe', 'usr\bin\file.exe', 'ucrt64\bin\cargo.exe', 'ucrt64\bin\rustc.exe')) {
+        Remove-Item -LiteralPath (Join-Path $msysRoot $relative) -Force
+    }
+    $readOnlyRoot = Join-Path $root 'readonly-playground'
+    foreach ($relative in @(
+        'codex\bin\codex.exe', 'wezterm\v1\wezterm.exe', 'btop\v1\btop.exe',
+        'copilot\v1\copilot.exe', 'powershell\v1\pwsh.exe', 'vscode\v1\Code.exe',
+        'notepad++\v1\notepad++.exe'
+    )) {
+        $path = Join-Path (Join-Path $readOnlyRoot 'install') $relative
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $path)) | Out-Null
+        Copy-Item -LiteralPath $driver -Destination $path
+    }
+    $readOnlyBin = Join-Path $readOnlyRoot 'bin'
+    [IO.Directory]::CreateDirectory($readOnlyBin) | Out-Null
+    [IO.Directory]::CreateDirectory((Join-Path $readOnlyRoot 'state')) | Out-Null
+    [IO.File]::WriteAllText((Join-Path $readOnlyRoot 'state\windows-commands.tsv'),
+        "git`tC:\old\git.exe`nyazi`tC:\old\yazi.exe`nfile`tC:\old\file.exe`n")
+    foreach ($name in @('git', 'yazi', 'file')) {
+        [IO.File]::WriteAllText((Join-Path $readOnlyBin $name), "#!/bin/sh`n# Managed playground launcher.`n")
+        [IO.File]::WriteAllText((Join-Path $readOnlyBin "$name.cmd"), "@echo off`r`nsetlocal`r`n")
+    }
+    $env:PD_MSYS2_READY = '1'
+    $env:PD_MSYS2_READ_ONLY = '1'
+    $env:PD_WEZTERM_EXE = Join-Path $readOnlyRoot 'install\wezterm\v1\wezterm.exe'
+    $env:PD_BTOP_EXE = Join-Path $readOnlyRoot 'install\btop\v1\btop.exe'
+    $env:PD_COPILOT_EXE = Join-Path $readOnlyRoot 'install\copilot\v1\copilot.exe'
+    $env:PD_CODE_EXE = Join-Path $readOnlyRoot 'install\vscode\v1\Code.exe'
+    $env:PD_NOTEPAD_EXE = Join-Path $readOnlyRoot 'install\notepad++\v1\notepad++.exe'
+    $env:PD_PWSH_EXE = Join-Path $readOnlyRoot 'install\powershell\v1\pwsh.exe'
+    [IO.File]::WriteAllText($env:PD_MSYS_FIXTURE_LOG, '')
+    $readOnlyBefore = Get-Msys2Snapshot
+    $output = & $testBash --noprofile --norc (Join-Path $repository 'install.sh').Replace('\', '/') `
+        --root (ConvertTo-Msys2Path -Path $readOnlyRoot) --msys2-root / --msys2-read-only --no-activate 2>&1
+    Assert ($LASTEXITCODE -eq 0) ("Read-only setup did not continue with available packages: " + ($output -join "`n"))
+    $pacmanCalls = @([IO.File]::ReadAllLines($env:PD_MSYS_FIXTURE_LOG) | Where-Object { $_ -like 'pacman *' })
+    Assert ($pacmanCalls.Count -eq 0) ("Read-only install invoked pacman: " + ($pacmanCalls -join "`n"))
+    Assert ((Get-Msys2Snapshot) -ceq $readOnlyBefore) 'Read-only install changed MSYS2 files.'
+    $readOnlyManifest = [IO.File]::ReadAllText((Join-Path $readOnlyRoot 'state\windows-commands.tsv'))
+    Assert ($readOnlyManifest.Contains("tmux`t") -and $readOnlyManifest.Contains("fzf`t")) 'Present MSYS2 commands were not exposed.'
+    foreach ($missing in @('git', 'yazi', 'ya', 'rustifiedgit', 'file')) {
+        Assert (-not $readOnlyManifest.Contains("$missing`t")) "Unavailable MSYS2 tool '$missing' was exposed."
+    }
+    foreach ($name in @('git', 'yazi', 'file')) {
+        Assert (-not (Test-Path -LiteralPath (Join-Path $readOnlyBin $name))) "Stale '$name' shell launcher was kept."
+        Assert (-not (Test-Path -LiteralPath (Join-Path $readOnlyBin "$name.cmd"))) "Stale '$name' CMD launcher was kept."
+    }
+    $readOnlyOutput = ($output -join "`n")
+    Assert ($readOnlyOutput.Contains('Skipping RustifiedGit') -and $readOnlyOutput.Contains('Skipping Yazi')) 'Missing build prerequisites did not skip RustifiedGit and Yazi clearly.'
 } finally {
     foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process') }
     if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
 }
-Write-Host 'Root-mounted MSYS2, missing-only packages, dependency guards and preserved compiled tools passed.'
+Write-Host 'Root-mounted MSYS2, missing-only and read-only packages, dependency guards and preserved tools passed.'

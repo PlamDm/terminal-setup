@@ -287,7 +287,10 @@ case "$(uname -s)" in
     YAZI_STATE_HOME="$(cygpath -m "$YAZI_STATE_HOME")"
     XDG_RUNTIME_DIR="$(cygpath -m "$XDG_RUNTIME_DIR")"
     export YAZI_CONFIG_HOME
-    export YAZI_FILE_ONE="$(cygpath -m "${PD_PLAYGROUND_MSYS2_ROOT%/}/usr/bin/file.exe")" ;;
+    unset YAZI_FILE_ONE
+    if [ -x "${PD_PLAYGROUND_MSYS2_ROOT%/}/usr/bin/file.exe" ]; then
+      export YAZI_FILE_ONE="$(cygpath -m "${PD_PLAYGROUND_MSYS2_ROOT%/}/usr/bin/file.exe")"
+    fi ;;
 esac
 EOF
         printf 'exec %s "$@"\n' "$pd_target_q" ;;

@@ -20,6 +20,17 @@ pd_install_rust() {
   [ -x "$PD_CARGO" ] && [ -x "$PD_RUSTC" ] || die "Rust compiler or Cargo is missing from $PD_INSTALL."
 }
 
+pd_require_readonly_msys2_build_tools() {
+  local pd_feature="$1" pd_missing=()
+  [ -x "${PD_MSYS2_ROOT%/}/ucrt64/bin/cargo.exe" ] || pd_missing+=(cargo)
+  [ -x "${PD_MSYS2_ROOT%/}/ucrt64/bin/rustc.exe" ] || pd_missing+=(rustc)
+  command -v git >/dev/null 2>&1 || pd_missing+=(git)
+  if [ "${#pd_missing[@]}" -ne 0 ]; then
+    log "Skipping $pd_feature; read-only MSYS2 lacks build prerequisites: ${pd_missing[*]}."
+    return 1
+  fi
+}
+
 pd_rustifiedgit_cached() {
   [ -x "$PD_INSTALL/rustifiedgit/bin/rustifiedgit$pd_suffix" ] && \
     [ -f "$PD_ROOT/state/rustifiedgit.commit" ] && \
@@ -37,6 +48,10 @@ install_rustifiedgit() {
   if [[ "$PD_REF" =~ ^[a-fA-F0-9]{40}$ ]] && pd_rustifiedgit_cached "$PD_REF"; then
     log "Requested RustifiedGit revision is already installed."
     return
+  fi
+  if [ "${PD_OS:-}" = windows ] && [ "${PD_MSYS2_READ_ONLY:-0}" = 1 ] &&
+      ! pd_require_readonly_msys2_build_tools RustifiedGit; then
+    return 0
   fi
   git init -q "$pd_source"
   git -C "$pd_source" remote add origin "$PD_REPO"

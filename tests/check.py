@@ -61,6 +61,18 @@ class PlaygroundChecks(unittest.TestCase):
         self.assertNotIn("Create an isolated Homebrew", result.stdout)
         self.assertNotIn("Build https://", result.stdout)
 
+    def test_msys2_read_only_preview_is_windows_only(self):
+        result = subprocess.run(
+            [BASH, str(ROOT / "install.sh"), "--dry-run", "--platform", "windows", "--msys2-read-only"],
+            capture_output=True, text=True, check=True,
+        )
+        self.assertIn("Use --msys2-read-only to use installed MSYS2 packages only", result.stdout)
+        invalid = subprocess.run(
+            [BASH, str(ROOT / "install.sh"), "--dry-run", "--platform", "linux", "--msys2-read-only"],
+            capture_output=True, text=True,
+        )
+        self.assertNotEqual(invalid.returncode, 0)
+
     def test_manual_activation_preview_leaves_root_absent(self):
         with tempfile.TemporaryDirectory(prefix="terminal-preview-") as directory:
             target = Path(directory) / "not-installed"

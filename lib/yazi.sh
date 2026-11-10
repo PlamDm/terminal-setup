@@ -11,6 +11,10 @@ install_portable_yazi_windows() {
   if [ -e "$PD_INSTALL/yazi/bin/yazi.exe" ] || [ -e "$PD_INSTALL/yazi/bin/ya.exe" ]; then
     die "Yazi installation is incomplete; choose another root to reinstall without replacing existing executables."
   fi
+  if [ "${PD_OS:-}" = windows ] && [ "${PD_MSYS2_READ_ONLY:-0}" = 1 ] &&
+      ! pd_require_readonly_msys2_build_tools Yazi; then
+    return 0
+  fi
   pd_install_rust
   log "Building Yazi 26.9.1 with cache and state inside the selected folder."
   git init -q "$pd_yazi_source"

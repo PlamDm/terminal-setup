@@ -84,6 +84,19 @@ RustifiedGit is built into a native `.exe`. WezTerm, btop4win, Copilot, PowerShe
 Copilot; its .NET runtime is bundled. btop4win uses the release without elevated
 hardware-monitoring requirements.
 
+To leave a reused MSYS2 completely unchanged and continue with only what's
+already installed, pass `-Msys2ReadOnly` (or `--msys2-read-only` to the Bash
+entry point). For example:
+
+```powershell
+.\install.ps1 -Msys2SearchPath D:\tools -Msys2ReadOnly -PlaygroundRoot D:\my-tools
+```
+
+In this mode, no MSYS2 package query or transaction is run. Existing MSYS2
+commands are exposed; absent commands are omitted, and RustifiedGit or Yazi
+builds are skipped if Git, Cargo or Rust are unavailable. Other portable
+Windows tools can still be installed.
+
 Both Bash and CMD launchers are generated. Commands work from PowerShell, CMD,
 MSYS2 Bash and WezTerm after activating the setup. Close processes using this
 MSYS2 installation before updating it, and close apps before replacing their

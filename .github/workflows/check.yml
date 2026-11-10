@@ -38,7 +38,7 @@ jobs:
       - name: Keep delegated installer PATH changes isolated in manual mode
         shell: powershell
         run: .\tests\check-codex-isolation.ps1
-      - name: Install missing MSYS2 packages without changing installed packages
+      - name: Check protected and read-only MSYS2 reuse
         shell: powershell
         run: .\tests\check-msys2.ps1
       - name: Preserve existing portable tools and install missing tools offline

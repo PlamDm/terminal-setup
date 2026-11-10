@@ -10,6 +10,7 @@ PD_DRY_RUN=0
 PD_ONLY_CODEX=0
 PD_ACTIVATE=0
 PD_USE_EXISTING_MSYS2=0
+PD_MSYS2_READ_ONLY=0
 PD_MSYS2_ROOT_ARG=""
 PD_MSYS2_SEARCH_PATH_ARG=""
 PD_PREVIEW_OS=""
@@ -32,6 +33,7 @@ By default, leaves profiles and persistent PATH unchanged. Source env-extra.sh.
   --activate           Opt in to shell hooks and desktop user PATH registration.
   --root DIR           Choose another absolute playground directory.
   --use-existing-msys2 Reuse MSYS2; install missing packages without changing installed packages.
+  --msys2-read-only    Reuse installed MSYS2 packages only; skip unavailable tools.
   --msys2-root DIR     Select an existing MSYS2 root on Windows.
   --msys2-search-path DIR  Search this folder and its subfolders for MSYS2.
   --rustifiedgit-ref REF    Build a commit, tag or branch from PlamDm/RustifiedGit.
@@ -49,6 +51,7 @@ while [ "$#" -gt 0 ]; do
     --no-activate) PD_ACTIVATE=0; shift ;;
     --activate) PD_ACTIVATE=1; shift ;;
     --use-existing-msys2) PD_USE_EXISTING_MSYS2=1; shift ;;
+    --msys2-read-only) PD_MSYS2_READ_ONLY=1; shift ;;
     --root|--msys2-root|--msys2-search-path|--rustifiedgit-ref|--platform)
       [ "$#" -ge 2 ] && [ -n "$2" ] || die "Missing value for $1."
       case "$1" in
@@ -77,6 +80,9 @@ detect_os() {
 }
 PD_OS="${PD_PREVIEW_OS:-$(detect_os)}"
 case "$PD_OS" in macos|linux|windows) ;; *) die "Unknown platform: $PD_OS." ;; esac
+if [ "$PD_MSYS2_READ_ONLY" -eq 1 ] && [ "$PD_OS" != windows ]; then
+  die "--msys2-read-only is only available on Windows."
+fi
 
 if [ "$PD_DRY_RUN" -eq 1 ]; then
   log "Preview only; no downloads or changes."
@@ -97,6 +103,7 @@ if [ "$PD_DRY_RUN" -eq 1 ]; then
         log "Install MSYS2 at $PD_ROOT/install/msys2 by default; use --use-existing-msys2 or --msys2-search-path to find and reuse an existing installation."
         log "Keep all existing Windows tools; install only missing tools."
         log "Existing MSYS2: add missing packages, abort any transaction that would change an installed package."
+        log "Use --msys2-read-only to use installed MSYS2 packages only and skip unavailable tools."
         log "Build Yazi with portable cache and state directory overrides."
         log "Download portable WezTerm and btop4win under $PD_ROOT/install."
         log "Add Yazi preview/search helpers, portable PowerShell 7, GitHub Copilot CLI, VS Code, Notepad++ and a private Nerd Font."
@@ -121,6 +128,7 @@ if [ "$PD_OS" = windows ] && [ "${PD_MSYS2_READY:-}" != 1 ]; then
   if [ "$PD_ONLY_CODEX" -eq 1 ]; then pd_windows_args+=(-OnlyCodex); fi
   if [ "$PD_ACTIVATE" -eq 1 ]; then pd_windows_args+=(-Activate); else pd_windows_args+=(-NoActivate); fi
   if [ "$PD_USE_EXISTING_MSYS2" -eq 1 ]; then pd_windows_args+=(-UseExistingMsys2); fi
+  if [ "$PD_MSYS2_READ_ONLY" -eq 1 ]; then pd_windows_args+=(-Msys2ReadOnly); fi
   if [ -n "$PD_MSYS2_ROOT_ARG" ]; then
     pd_windows_args+=(-Msys2Root "$(cygpath -w "$PD_MSYS2_ROOT_ARG")")
   fi
@@ -195,7 +203,11 @@ install_unix_tools() {
 install_windows_tools() {
   [ -x /usr/bin/pacman.exe ] || die "Use install.ps1 to initialize MSYS2."
   [ "$(uname -m)" = x86_64 ] || die "The MSYS2 package set requires x64."
-  pd_install_msys2_packages
+  if [ "$PD_MSYS2_READ_ONLY" -eq 1 ]; then
+    log "Using installed MSYS2 packages as-is; missing packages and their tools will be skipped."
+  else
+    pd_install_msys2_packages
+  fi
   export PATH="/ucrt64/bin:/usr/bin:$PATH"
   PD_WEZTERM="$(cygpath -u -U "$PD_WEZTERM_EXE")"
   PD_BTOP="$(cygpath -u -U "$PD_BTOP_EXE")"
@@ -236,6 +248,28 @@ register_command() {
     printf '%s\t%s\n' "$pd_name" "$(cygpath -w "$pd_target")" >> "$PD_ROOT/state/windows-commands.tsv"
   fi
 }
+unregister_command() {
+  local pd_name="$1" pd_launcher="$PD_BIN/$1"
+  if [ -f "$pd_launcher" ] && grep -Fq '# Managed playground launcher.' "$pd_launcher"; then
+    rm -f -- "$pd_launcher"
+  fi
+  if [ "$PD_OS" = windows ] && [ -f "$PD_TEMP/windows-commands.previous.tsv" ] &&
+      awk -F '\t' -v name="$pd_name" '$1 == name { found = 1 } END { exit !found }' \
+        "$PD_TEMP/windows-commands.previous.tsv"; then
+    rm -f -- "$PD_BIN/$pd_name.cmd"
+  fi
+}
+register_available_command() {
+  local pd_name="$1" pd_target="$2"
+  if [ -x "$pd_target" ]; then
+    register_command "$pd_name" "$pd_target"
+  elif [ "$PD_MSYS2_READ_ONLY" -eq 1 ]; then
+    log "Skipping '$pd_name'; its executable is not present in the selected MSYS2 or playground."
+    unregister_command "$pd_name"
+  else
+    register_command "$pd_name" "$pd_target"
+  fi
+}
 
 if [ "$PD_ONLY_CODEX" -ne 1 ]; then
   case "$PD_OS" in macos|linux) install_unix_tools ;; windows) install_windows_tools ;; esac
@@ -249,6 +283,9 @@ if [ "$PD_OS" = windows ]; then
     awk -F '\t' '$1 != "codex"' "$PD_ROOT/state/windows-commands.tsv" > "$PD_TEMP/windows-commands.tsv"
     mv "$PD_TEMP/windows-commands.tsv" "$PD_ROOT/state/windows-commands.tsv"
   else
+    if [ -f "$PD_ROOT/state/windows-commands.tsv" ]; then
+      cp "$PD_ROOT/state/windows-commands.tsv" "$PD_TEMP/windows-commands.previous.tsv"
+    fi
     : > "$PD_ROOT/state/windows-commands.tsv"
   fi
   register_command codex "$PD_INSTALL/codex/bin/codex.exe"
@@ -258,12 +295,12 @@ fi
 if [ "$PD_ONLY_CODEX" -ne 1 ]; then
   if [ "$PD_OS" = windows ]; then
     register_command bash "${PD_MSYS2_ROOT%/}/usr/bin/bash.exe"
-    register_command tmux "${PD_MSYS2_ROOT%/}/usr/bin/tmux.exe"
-    register_command git "${PD_MSYS2_ROOT%/}/usr/bin/git.exe"
-    for pd_cmd in yazi ya; do register_command "$pd_cmd" "$PD_INSTALL/yazi/bin/$pd_cmd.exe"; done
-    register_command fzf "${PD_MSYS2_ROOT%/}/ucrt64/bin/fzf.exe"
+    register_available_command tmux "${PD_MSYS2_ROOT%/}/usr/bin/tmux.exe"
+    register_available_command git "${PD_MSYS2_ROOT%/}/usr/bin/git.exe"
+    for pd_cmd in yazi ya; do register_available_command "$pd_cmd" "$PD_INSTALL/yazi/bin/$pd_cmd.exe"; done
+    register_available_command fzf "${PD_MSYS2_ROOT%/}/ucrt64/bin/fzf.exe"
     register_command btop "$PD_BTOP"
-    register_command rustifiedgit "$PD_INSTALL/rustifiedgit/bin/rustifiedgit.exe"
+    register_available_command rustifiedgit "$PD_INSTALL/rustifiedgit/bin/rustifiedgit.exe"
   else
     for pd_cmd in bash tmux yazi ya git btop fzf; do register_command "$pd_cmd" "$PD_TOOL_BIN/$pd_cmd"; done
     register_command rustifiedgit "$PD_INSTALL/rustifiedgit/bin/rustifiedgit"
@@ -278,7 +315,11 @@ if [ "$PD_ONLY_CODEX" -ne 1 ]; then
   for pd_cmd in file ffmpeg ffprobe 7z 7zz jq pdftoppm pdftotext pdfinfo fd rg zoxide resvg magick xclip wl-copy wl-paste gio; do
     pd_suffix=""; if [ "$PD_OS" = windows ]; then pd_suffix=.exe; fi
     if [ -x "$PD_TOOL_BIN/$pd_cmd$pd_suffix" ]; then register_command "$pd_cmd" "$PD_TOOL_BIN/$pd_cmd$pd_suffix";
-    elif [ "$PD_OS" = windows ] && [ "$pd_cmd" = file ]; then register_command file "${PD_MSYS2_ROOT%/}/usr/bin/file.exe"; fi
+    elif [ "$PD_OS" = windows ] && [ "$pd_cmd" = file ]; then register_available_command file "${PD_MSYS2_ROOT%/}/usr/bin/file.exe"
+    elif [ "$PD_OS" = windows ] && [ "$PD_MSYS2_READ_ONLY" -eq 1 ]; then
+      log "Skipping optional MSYS2 helper '$pd_cmd'; its executable is not installed."
+      unregister_command "$pd_cmd"
+    fi
   done
   for pd_config in keymap.toml yazi.toml; do
     if [ ! -e "$PD_ROOT/config/yazi/$pd_config" ]; then cp "$PD_DIR/yazi/$pd_config" "$PD_ROOT/config/yazi/$pd_config"; fi
@@ -293,5 +334,7 @@ else
   log "Ready. Load extra tools in Bash/Zsh with: . \"$PD_ROOT/config/shell/env-extra.sh\""
 fi
 if [ "$PD_ONLY_CODEX" -ne 1 ]; then
-  for pd_cmd in bash tmux yazi rustifiedgit fzf btop wezterm copilot code; do log "$pd_cmd -> $PD_BIN/$pd_cmd"; done
+  for pd_cmd in bash tmux yazi rustifiedgit fzf btop wezterm copilot code; do
+    if [ -x "$PD_BIN/$pd_cmd" ]; then log "$pd_cmd -> $PD_BIN/$pd_cmd"; fi
+  done
 fi

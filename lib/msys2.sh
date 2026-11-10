@@ -8,6 +8,9 @@ PD_MSYS2_PACKAGES=(
 )
 
 pd_install_msys2_packages() (
+  if [ "${PD_MSYS2_READ_ONLY:-0}" = 1 ]; then
+    return 0
+  fi
   local pd_pacman="${PD_MSYS2_ROOT%/}/usr/bin/pacman.exe"
   if [ "${PD_MSYS2_PRESERVE_INSTALLED:-0}" != 1 ]; then
     "$pd_pacman" -S --needed --noconfirm "${PD_MSYS2_PACKAGES[@]}"
