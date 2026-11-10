@@ -30,7 +30,9 @@ function Invoke-Checked {
 function Get-GitHubRelease {
     param([string] $Repo, [switch] $StableMsys2)
     if ($StableMsys2) {
-        $releases = @(Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/$Repo/releases?per_page=30")
+        # Assign directly: wrapping Invoke-RestMethod in @() can nest its JSON
+        # array in Windows PowerShell, making Where-Object see one array item.
+        $releases = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/$Repo/releases?per_page=30"
         $release = $releases | Where-Object {
             -not $_.prerelease -and -not $_.draft -and $_.tag_name -notmatch 'nightly'
         } | Select-Object -First 1
