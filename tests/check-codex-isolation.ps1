@@ -33,6 +33,7 @@ try {
         throw 'Successful delegated install changed user PATH in manual mode.'
     }
     $script:simulateFailure = $true
+    Remove-Item -LiteralPath (Join-Path $installRoot 'codex\bin\codex.exe')
     $failed = $false
     try { Install-Codex } catch {
         if ($_.Exception.Message -ne 'Fixture install failure') { throw }

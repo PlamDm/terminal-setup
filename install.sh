@@ -31,8 +31,8 @@ By default, leaves profiles and persistent PATH unchanged. Source env-extra.sh.
   --no-activate        Install without changing profiles or persistent PATH.
   --activate           Opt in to shell hooks and desktop user PATH registration.
   --root DIR           Choose another absolute playground directory.
-  --use-existing-msys2 Reuse a detected system MSYS2 without changing its packages.
-  --msys2-root DIR     Use this existing MSYS2 root read-only on Windows.
+  --use-existing-msys2 Reuse MSYS2; install missing packages without changing installed packages.
+  --msys2-root DIR     Select an existing MSYS2 root on Windows.
   --msys2-search-path DIR  Search this folder and its subfolders for MSYS2.
   --rustifiedgit-ref REF    Build a commit, tag or branch from PlamDm/RustifiedGit.
   --platform OS        Preview macos, linux or windows; requires --dry-run.
@@ -95,8 +95,8 @@ if [ "$PD_DRY_RUN" -eq 1 ]; then
         log "Custom prefixes can require compilation and can exceed 10 minutes." ;;
       windows)
         log "Install MSYS2 at $PD_ROOT/install/msys2 by default; use --use-existing-msys2 or --msys2-search-path to find and reuse an existing installation."
-        log "Reused MSYS2 is read-only: check required packages without upgrades or installs; stop if prerequisites are missing."
-        log "Install bash tmux git file and UCRT64 rust fzf through pacman only in managed MSYS2."
+        log "Keep all existing Windows tools; install only missing tools."
+        log "Existing MSYS2: add missing packages, abort any transaction that would change an installed package."
         log "Build Yazi with portable cache and state directory overrides."
         log "Download portable WezTerm and btop4win under $PD_ROOT/install."
         log "Add Yazi preview/search helpers, portable PowerShell 7, GitHub Copilot CLI, VS Code, Notepad++ and a private Nerd Font."
@@ -146,7 +146,7 @@ if [ "$PD_OS" = windows ]; then
   PD_MSYS2_ROOT="$PD_MSYS2_ROOT_ARG"
   [ -n "$PD_MSYS2_ROOT" ] || PD_MSYS2_ROOT="$PD_INSTALL/msys2"
   case "$PD_MSYS2_ROOT" in *[[:space:]]*) die "MSYS2 requires a path without whitespace." ;; esac
-  [ -x "$PD_MSYS2_ROOT/usr/bin/bash.exe" ] || die "MSYS2 was not found at $PD_MSYS2_ROOT."
+  [ -x "${PD_MSYS2_ROOT%/}/usr/bin/bash.exe" ] || die "MSYS2 was not found at $PD_MSYS2_ROOT."
 fi
 mkdir -p "$PD_INSTALL" "$PD_BIN" "$PD_ROOT/config" "$PD_ROOT/state" "$PD_ROOT/cache" "$PD_ROOT/tmp"
 export TMPDIR="$PD_ROOT/tmp"
@@ -197,13 +197,13 @@ install_windows_tools() {
   [ "$(uname -m)" = x86_64 ] || die "The MSYS2 package set requires x64."
   pd_install_msys2_packages
   export PATH="/ucrt64/bin:/usr/bin:$PATH"
-  PD_WEZTERM="$(cygpath -u "$PD_WEZTERM_EXE")"
-  PD_BTOP="$(cygpath -u "$PD_BTOP_EXE")"
-  PD_TOOL_BIN="$PD_MSYS2_ROOT/ucrt64/bin"
-  PD_COPILOT="$(cygpath -u "$PD_COPILOT_EXE")"
-  PD_CODE="$(cygpath -u "$PD_CODE_EXE")"
-  PD_NOTEPAD="$(cygpath -u "$PD_NOTEPAD_EXE")"
-  PD_PWSH="$(cygpath -u "$PD_PWSH_EXE")"
+  PD_WEZTERM="$(cygpath -u -U "$PD_WEZTERM_EXE")"
+  PD_BTOP="$(cygpath -u -U "$PD_BTOP_EXE")"
+  PD_TOOL_BIN="${PD_MSYS2_ROOT%/}/ucrt64/bin"
+  PD_COPILOT="$(cygpath -u -U "$PD_COPILOT_EXE")"
+  PD_CODE="$(cygpath -u -U "$PD_CODE_EXE")"
+  PD_NOTEPAD="$(cygpath -u -U "$PD_NOTEPAD_EXE")"
+  PD_PWSH="$(cygpath -u -U "$PD_PWSH_EXE")"
 }
 install_codex() {
   if [ "$PD_OS" = windows ]; then
@@ -245,18 +245,23 @@ if [ "$PD_ONLY_CODEX" -ne 1 ]; then
 fi
 install_codex
 if [ "$PD_OS" = windows ]; then
-  : > "$PD_ROOT/state/windows-commands.tsv"
+  if [ "$PD_ONLY_CODEX" -eq 1 ] && [ -f "$PD_ROOT/state/windows-commands.tsv" ]; then
+    awk -F '\t' '$1 != "codex"' "$PD_ROOT/state/windows-commands.tsv" > "$PD_TEMP/windows-commands.tsv"
+    mv "$PD_TEMP/windows-commands.tsv" "$PD_ROOT/state/windows-commands.tsv"
+  else
+    : > "$PD_ROOT/state/windows-commands.tsv"
+  fi
   register_command codex "$PD_INSTALL/codex/bin/codex.exe"
 else
   register_command codex "$PD_INSTALL/codex/bin/codex"
 fi
 if [ "$PD_ONLY_CODEX" -ne 1 ]; then
   if [ "$PD_OS" = windows ]; then
-    register_command bash "$PD_MSYS2_ROOT/usr/bin/bash.exe"
-    register_command tmux "$PD_MSYS2_ROOT/usr/bin/tmux.exe"
-    register_command git "$PD_MSYS2_ROOT/usr/bin/git.exe"
+    register_command bash "${PD_MSYS2_ROOT%/}/usr/bin/bash.exe"
+    register_command tmux "${PD_MSYS2_ROOT%/}/usr/bin/tmux.exe"
+    register_command git "${PD_MSYS2_ROOT%/}/usr/bin/git.exe"
     for pd_cmd in yazi ya; do register_command "$pd_cmd" "$PD_INSTALL/yazi/bin/$pd_cmd.exe"; done
-    register_command fzf "$PD_MSYS2_ROOT/ucrt64/bin/fzf.exe"
+    register_command fzf "${PD_MSYS2_ROOT%/}/ucrt64/bin/fzf.exe"
     register_command btop "$PD_BTOP"
     register_command rustifiedgit "$PD_INSTALL/rustifiedgit/bin/rustifiedgit.exe"
   else
@@ -273,7 +278,7 @@ if [ "$PD_ONLY_CODEX" -ne 1 ]; then
   for pd_cmd in file ffmpeg ffprobe 7z 7zz jq pdftoppm pdftotext pdfinfo fd rg zoxide resvg magick xclip wl-copy wl-paste gio; do
     pd_suffix=""; if [ "$PD_OS" = windows ]; then pd_suffix=.exe; fi
     if [ -x "$PD_TOOL_BIN/$pd_cmd$pd_suffix" ]; then register_command "$pd_cmd" "$PD_TOOL_BIN/$pd_cmd$pd_suffix";
-    elif [ "$PD_OS" = windows ] && [ "$pd_cmd" = file ]; then register_command file "$PD_MSYS2_ROOT/usr/bin/file.exe"; fi
+    elif [ "$PD_OS" = windows ] && [ "$pd_cmd" = file ]; then register_command file "${PD_MSYS2_ROOT%/}/usr/bin/file.exe"; fi
   done
   for pd_config in keymap.toml yazi.toml; do
     if [ ! -e "$PD_ROOT/config/yazi/$pd_config" ]; then cp "$PD_DIR/yazi/$pd_config" "$PD_ROOT/config/yazi/$pd_config"; fi

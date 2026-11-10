@@ -211,7 +211,7 @@ pd_write_launcher() {
   case "$pd_target" in
     "$PD_ROOT/install/"*) ;;
     *)
-      if [ "${PD_OS:-}" != windows ] || [[ "$pd_target" != "$PD_MSYS2_ROOT/"* ]]; then
+      if [ "${PD_OS:-}" != windows ] || [[ "$pd_target" != "${PD_MSYS2_ROOT%/}/"* ]]; then
         die "Tool outside playground and selected MSYS2: $pd_target."
       fi ;;
   esac
@@ -233,7 +233,7 @@ case "$(uname -s)" in
     export TEMP="$(cygpath -m "$PD_PLAYGROUND_ROOT/tmp")"
     export TMP="$TEMP"
     export PD_PLAYGROUND_MSYS2_ROOT
-    export PATH="$PD_PLAYGROUND_ROOT/bin:$PD_PLAYGROUND_MSYS2_ROOT/ucrt64/bin:$PD_PLAYGROUND_MSYS2_ROOT/usr/bin:$PATH" ;;
+    export PATH="$PD_PLAYGROUND_ROOT/bin:${PD_PLAYGROUND_MSYS2_ROOT%/}/ucrt64/bin:${PD_PLAYGROUND_MSYS2_ROOT%/}/usr/bin:$PATH" ;;
   *) export PATH="$PD_PLAYGROUND_ROOT/bin:$PD_PLAYGROUND_ROOT/install/homebrew/bin:$PATH" ;;
 esac
 EOF
@@ -287,7 +287,7 @@ case "$(uname -s)" in
     YAZI_STATE_HOME="$(cygpath -m "$YAZI_STATE_HOME")"
     XDG_RUNTIME_DIR="$(cygpath -m "$XDG_RUNTIME_DIR")"
     export YAZI_CONFIG_HOME
-    export YAZI_FILE_ONE="$(cygpath -m "$PD_PLAYGROUND_MSYS2_ROOT/usr/bin/file.exe")" ;;
+    export YAZI_FILE_ONE="$(cygpath -m "${PD_PLAYGROUND_MSYS2_ROOT%/}/usr/bin/file.exe")" ;;
 esac
 EOF
         printf 'exec %s "$@"\n' "$pd_target_q" ;;

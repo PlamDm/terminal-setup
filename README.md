@@ -56,10 +56,14 @@ executables already on `PATH`. When reuse is selected, it also searches fixed
 drives recursively for an `msys64` directory if those checks find nothing.
 If it finds an existing MSYS2, it asks whether
 to reuse it. Answer `y` to use it without downloading another MSYS2.
-**Reused MSYS2 installations are read-only:** the installer does not update,
-install or remove their packages. It checks prerequisites before downloading
-tools and stops with a list of missing packages if necessary. Install those
-prerequisites yourself, or answer `n` to
+**Existing Windows tools are preserved:** setup installs only missing tools,
+without upgrading existing portable applications, RustifiedGit or Yazi.
+For an existing MSYS2 (including one previously installed by this setup), only
+missing packages are requested. A pre-transaction guard aborts any package
+transaction that would upgrade, reinstall, downgrade or remove an installed
+package, including dependency changes. If a missing tool requires newer
+installed dependencies, choose a separate MSYS2 installation instead of updating
+the current one. Answer `n` to
 keep the tools setup self-contained under the selected playground folder.
 For unattended installs, pass `-UseExistingMsys2` to find and reuse it
 automatically. To search a particular parent folder and its subfolders, pass
@@ -207,12 +211,16 @@ installed folder containing credentials or session history.
 
 ## Updates and sign-in
 
-Rerun the installer with the same root to update managed packages and portable tools.
-Reused MSYS2 installations remain unchanged on reruns; manage their packages
-separately. Only the playground-managed MSYS2 is upgraded automatically.
+On Windows, rerun with the same root to add missing tools, not to update existing
+ones. Existing portable versions and the active version recorded in
+`state/windows-commands.tsv` are reused without checking for updates.
+Only a newly extracted MSYS2 is upgraded during its initial setup; existing
+MSYS2 packages are preserved. Missing package installation can still require
+working mirror access and certificate trust.
+On macOS/Linux, reruns continue to update managed packages and portable tools.
 Existing projects and customized configuration are preserved. RustifiedGit is
 built from [PlamDm/RustifiedGit](https://github.com/PlamDm/RustifiedGit) at the
-pinned revision `7a2be2ebfa45cfc5be78e788a820ee145953f36b`. To update it to `main`:
+pinned revision `7a2be2ebfa45cfc5be78e788a820ee145953f36b`. To build `main`, use:
 
 ```sh
 bash install.sh --root "$HOME/my-tools" --rustifiedgit-ref main
@@ -225,6 +233,8 @@ bash install.sh --root "$HOME/my-tools" --rustifiedgit-ref main
 Builds use `cargo build --release --locked`. The binary is reused when the source
 commit is unchanged; a failed build retains the previous executable. Downloaded
 portable archives are verified against published SHA-256 hashes.
+On Windows an existing RustifiedGit executable is always kept, even when a
+different ref is requested. Choose another root to install a different version.
 
 The AI CLIs have separate sign-ins. Run the managed `codex login`, and launch
 managed `copilot` then use `/login`. Installing Copilot does not purchase a

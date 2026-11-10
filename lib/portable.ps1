@@ -4,15 +4,20 @@ function Install-PortableWindowsTools {
     $env:PD_PWSH_EXE = Install-ZipTool -Repo 'PowerShell/PowerShell' -Pattern '^PowerShell-.*-win-x64\.zip$' -Name 'powershell' -Executable 'pwsh.exe'
     $env:PD_NOTEPAD_EXE = Install-ZipTool -Repo 'notepad-plus-plus/notepad-plus-plus' -Pattern '^npp\..*\.portable\.x64\.zip$' -Name 'notepad++' -Executable 'notepad++.exe'
     $notepadDirectory = Split-Path -Parent $env:PD_NOTEPAD_EXE
-    [IO.File]::WriteAllText((Join-Path $notepadDirectory 'doLocalConf.xml'), '')
+    $localConfig = Join-Path $notepadDirectory 'doLocalConf.xml'
+    if (-not (Test-Path -LiteralPath $localConfig)) { [IO.File]::WriteAllText($localConfig, '') }
 
-    $metadata = Invoke-RestMethod -Uri 'https://update.code.visualstudio.com/api/update/win32-x64-archive/stable/latest'
-    if ($metadata.version -notmatch '^[a-f0-9]{40}$' -or $metadata.sha256hash -notmatch '^[a-f0-9]{64}$') {
-        throw 'VS Code metadata did not contain a commit and SHA-256.'
-    }
-    $destination = Join-Path (Join-Path $installRoot 'vscode') $metadata.version
-    $executable = Join-Path $destination 'Code.exe'
-    if (-not (Test-Path -LiteralPath $executable)) {
+    $executable = Find-InstalledTool -Name 'vscode' -Executable 'Code.exe'
+    if ($executable) {
+        Write-Host "[playground] Keeping installed VS Code at $executable."
+        $destination = Split-Path -Parent $executable
+    } else {
+        $metadata = Invoke-RestMethod -Uri 'https://update.code.visualstudio.com/api/update/win32-x64-archive/stable/latest'
+        if ($metadata.version -notmatch '^[a-f0-9]{40}$' -or $metadata.sha256hash -notmatch '^[a-f0-9]{64}$') {
+            throw 'VS Code metadata did not contain a commit and SHA-256.'
+        }
+        $destination = Join-Path (Join-Path $installRoot 'vscode') $metadata.version
+        $executable = Join-Path $destination 'Code.exe'
         $archive = Join-Path $cacheDirectory ('vscode-' + $metadata.version + '.zip')
         if (-not (Test-Path -LiteralPath $archive) -or
             (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash -ine $metadata.sha256hash) {

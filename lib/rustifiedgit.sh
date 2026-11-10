@@ -5,8 +5,8 @@ pd_native_path() {
 
 pd_install_rust() {
   if [ "$PD_OS" = windows ]; then
-    PD_CARGO="$PD_MSYS2_ROOT/ucrt64/bin/cargo.exe"
-    PD_RUSTC="$PD_MSYS2_ROOT/ucrt64/bin/rustc.exe"
+    PD_CARGO="${PD_MSYS2_ROOT%/}/ucrt64/bin/cargo.exe"
+    PD_RUSTC="${PD_MSYS2_ROOT%/}/ucrt64/bin/rustc.exe"
   else
     PD_CARGO="$PD_INSTALL/rust/bin/cargo"
     PD_RUSTC="$PD_INSTALL/rust/bin/rustc"
@@ -29,6 +29,10 @@ pd_rustifiedgit_cached() {
 install_rustifiedgit() {
   local pd_source="$PD_TEMP/rustifiedgit" pd_commit pd_suffix="" pd_target pd_staged
   [ "$PD_OS" != windows ] || pd_suffix=".exe"
+  if [ "$PD_OS" = windows ] && [ -x "$PD_INSTALL/rustifiedgit/bin/rustifiedgit.exe" ]; then
+    log "Keeping installed RustifiedGit."
+    return
+  fi
   mkdir -p "$PD_INSTALL/rustifiedgit/bin" "$PD_ROOT/cache/cargo" "$PD_ROOT/cache/rustifiedgit-target"
   if [[ "$PD_REF" =~ ^[a-fA-F0-9]{40}$ ]] && pd_rustifiedgit_cached "$PD_REF"; then
     log "Requested RustifiedGit revision is already installed."
