@@ -1,8 +1,8 @@
 # Shared Bash helpers for the user-owned playground layout.
 pd_quote() {
-  local pd_value="$1"
-  pd_value="${pd_value//\'/\'\\\'\'}"
-  printf "'%s'" "$pd_value"
+  printf "'"
+  printf '%s' "$1" | sed "s/'/'\\\\''/g"
+  printf "'"
 }
 
 pd_write_environment() {

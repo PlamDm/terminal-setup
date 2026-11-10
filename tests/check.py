@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-BASH = shutil.which("bash") or "/bin/bash"
+BASH = os.environ.get("TEST_BASH") or shutil.which("bash") or "/bin/bash"
 
 
 def executable(path, source):
