@@ -92,13 +92,14 @@ function Install-Msys2 {
         return
     }
     $release = Get-GitHubRelease -Repo 'msys2/msys2-installer' -StableMsys2
-    $asset = $release.assets | Where-Object { $_.name -match '^msys2-base-x86_64-.*\.tar\.xz$' } | Select-Object -First 1
+    $asset = $release.assets | Where-Object { $_.name -match '^msys2-base-x86_64-.*\.sfx\.exe$' } | Select-Object -First 1
     if (-not $asset) { throw 'No stable x64 MSYS2 base archive was found.' }
     $archive = Save-Asset -Asset $asset -Release $release
     $staging = Join-Path (Join-Path $PlaygroundRoot 'tmp') ('msys2-' + [Guid]::NewGuid().ToString('N'))
     [IO.Directory]::CreateDirectory($staging) | Out-Null
     try {
-        Invoke-Checked -Program 'tar.exe' -Arguments @('-xJf', $archive, '-C', $staging)
+        $process = Start-Process -FilePath $archive -ArgumentList @('-y', ('-o' + $staging)) -PassThru -Wait
+        if ($process.ExitCode -ne 0) { throw "MSYS2 archive extraction failed with exit code $($process.ExitCode)." }
         Move-Item -LiteralPath (Join-Path $staging 'msys64') -Destination $msysRoot
     } finally { Remove-Item -LiteralPath $staging -Recurse -Force }
     if (-not (Test-Path -LiteralPath $bashPath)) { throw "MSYS2 archive did not create $bashPath." }

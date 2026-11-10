@@ -46,10 +46,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -PlaygroundRoo
 ```
 
 Choose a user-writable directory without spaces or special characters, on a
-filesystem supporting junctions and hard links (normally NTFS). Windows' built-in
-`tar.exe` is required. The default is `%USERPROFILE%\playground`.
+filesystem supporting junctions and hard links (normally NTFS).
+The default is `%USERPROFILE%\playground`.
 
-The installer extracts MSYS2's official base archive into `install/msys2`, with
+The installer extracts MSYS2's official self-extracting base archive into `install/msys2`, with
 no setup registration or Start menu shortcuts. Its UCRT64 packages supply Git
 helpers, Rust and their library dependencies; Bash and tmux use MSYS2. Yazi 26.9.1
 is compiled with a small cache/state directory override because the stock Windows

@@ -22,7 +22,7 @@ try {
     $ast = [Management.Automation.Language.Parser]::ParseFile(
         (Join-Path $PSScriptRoot '..\install.ps1'), [ref]$tokens, [ref]$parseErrors)
     if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
-    foreach ($name in @('Invoke-Checked', 'Get-GitHubRelease', 'Save-Asset', 'Install-ZipTool', 'Write-WindowsLaunchers', 'Configure-Btop')) {
+    foreach ($name in @('Invoke-Checked', 'Get-GitHubRelease', 'Save-Asset', 'Install-ZipTool', 'Write-WindowsLaunchers', 'Configure-Btop', 'Install-Msys2')) {
         $function = $ast.Find({ param($node)
             $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
         }, $true)
@@ -33,6 +33,8 @@ try {
         [IO.Directory]::CreateDirectory($directory) | Out-Null
     }
     . (Join-Path $PSScriptRoot '..\lib\portable.ps1')
+    Install-Msys2
+    Invoke-Checked -Program (Join-Path $msysRoot 'usr\bin\bash.exe') -Arguments @('--login', '-c', 'true')
     Install-PortableWindowsTools
     $btop = Install-ZipTool -Repo 'aristocratos/btop4win' -Pattern '^btop4win-x64\.zip$' -Name 'btop' -Executable 'btop4win.exe'
     Configure-Btop -Executable $btop
