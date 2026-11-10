@@ -11,6 +11,7 @@ PD_ONLY_CODEX=0
 PD_ACTIVATE=0
 PD_USE_EXISTING_MSYS2=0
 PD_MSYS2_ROOT_ARG=""
+PD_MSYS2_SEARCH_PATH_ARG=""
 PD_PREVIEW_OS=""
 PD_TEMP=""
 
@@ -32,6 +33,7 @@ By default, leaves profiles and persistent PATH unchanged. Source env-extra.sh.
   --root DIR           Choose another absolute playground directory.
   --use-existing-msys2 Reuse a detected system MSYS2 without changing its packages.
   --msys2-root DIR     Use this existing MSYS2 root read-only on Windows.
+  --msys2-search-path DIR  Search this folder and its subfolders for MSYS2.
   --rustifiedgit-ref REF    Build a commit, tag or branch from PlamDm/RustifiedGit.
   --platform OS        Preview macos, linux or windows; requires --dry-run.
   -h, --help           Show help.
@@ -47,11 +49,12 @@ while [ "$#" -gt 0 ]; do
     --no-activate) PD_ACTIVATE=0; shift ;;
     --activate) PD_ACTIVATE=1; shift ;;
     --use-existing-msys2) PD_USE_EXISTING_MSYS2=1; shift ;;
-    --root|--msys2-root|--rustifiedgit-ref|--platform)
+    --root|--msys2-root|--msys2-search-path|--rustifiedgit-ref|--platform)
       [ "$#" -ge 2 ] && [ -n "$2" ] || die "Missing value for $1."
       case "$1" in
         --root) PD_ROOT="$2" ;;
         --msys2-root) PD_MSYS2_ROOT_ARG="$2" ;;
+        --msys2-search-path) PD_MSYS2_SEARCH_PATH_ARG="$2" ;;
         --rustifiedgit-ref) PD_REF="$2" ;;
         --platform) PD_PREVIEW_OS="$2" ;;
       esac
@@ -91,7 +94,7 @@ if [ "$PD_DRY_RUN" -eq 1 ]; then
         log "Install WezTerm under $PD_ROOT/install (apps/WezTerm.app on macOS)."
         log "Custom prefixes can require compilation and can exceed 10 minutes." ;;
       windows)
-        log "Install MSYS2 at $PD_ROOT/install/msys2 by default; use --use-existing-msys2 or --msys2-root to reuse an existing installation."
+        log "Install MSYS2 at $PD_ROOT/install/msys2 by default; use --use-existing-msys2 or --msys2-search-path to find and reuse an existing installation."
         log "Reused MSYS2 is read-only: check required packages without upgrades or installs; stop if prerequisites are missing."
         log "Install bash tmux git file and UCRT64 rust fzf through pacman only in managed MSYS2."
         log "Build Yazi with portable cache and state directory overrides."
@@ -120,6 +123,9 @@ if [ "$PD_OS" = windows ] && [ "${PD_MSYS2_READY:-}" != 1 ]; then
   if [ "$PD_USE_EXISTING_MSYS2" -eq 1 ]; then pd_windows_args+=(-UseExistingMsys2); fi
   if [ -n "$PD_MSYS2_ROOT_ARG" ]; then
     pd_windows_args+=(-Msys2Root "$(cygpath -w "$PD_MSYS2_ROOT_ARG")")
+  fi
+  if [ -n "$PD_MSYS2_SEARCH_PATH_ARG" ]; then
+    pd_windows_args+=(-Msys2SearchPath "$(cygpath -w "$PD_MSYS2_SEARCH_PATH_ARG")")
   fi
   exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File \
     "$(cygpath -w "$PD_DIR/install.ps1")" -PlaygroundRoot "$(cygpath -w "$PD_ROOT")" \

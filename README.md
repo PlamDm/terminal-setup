@@ -62,9 +62,11 @@ tools and stops with a list of missing packages if necessary. Install those
 prerequisites yourself, or answer `n` to
 keep the tools setup self-contained under the selected playground folder.
 For unattended installs, pass `-UseExistingMsys2` to find and reuse it
-automatically; use `-Msys2Root C:\msys64` to select a specific installation.
-The Bash entry point accepts
-`--use-existing-msys2` and `--msys2-root /c/msys64` as well. The selected path
+automatically. To search a particular parent folder and its subfolders, pass
+`-Msys2SearchPath D:\tools`; the Bash entry point accepts
+`--msys2-search-path /d/tools`. `-Msys2Root C:\msys64` remains available when
+you know the exact installation folder. The Bash entry point also accepts
+`--use-existing-msys2` and `--msys2-root /c/msys64`. The selected path
 is saved in `config/path/msys2-root.txt` for WezTerm and generated launchers.
 The playground folder must be outside the reused MSYS2 installation. Setup
 bypasses its shell startup files and keeps temporary files and a separate

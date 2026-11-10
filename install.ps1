@@ -8,6 +8,7 @@ param(
     [switch] $UseExistingMsys2,
     [ValidatePattern('^[A-Za-z]:[\\/][A-Za-z0-9_\\/-]+$')]
     [string] $Msys2Root,
+    [string] $Msys2SearchPath,
     [ValidatePattern('^[A-Za-z]:[\\/][A-Za-z0-9_\\/-]+$')]
     [string] $PlaygroundRoot = (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'playground'),
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._/-]*$')]
@@ -117,6 +118,21 @@ function Test-Msys2Installation {
     }
     return $true
 }
+function Find-Msys2UnderPath {
+    param([string] $Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+        throw "The MSYS2 search folder does not exist: $Path"
+    }
+    $searchRoot = [IO.Path]::GetFullPath($Path)
+    if (Test-Msys2Installation -Path $searchRoot) { return $searchRoot.TrimEnd('\', '/') }
+    foreach ($match in (Get-ChildItem -LiteralPath $searchRoot -Directory `
+        -Filter 'msys64' -Recurse -Force -ErrorAction SilentlyContinue)) {
+        if (Test-Msys2Installation -Path $match.FullName) {
+            return [IO.Path]::GetFullPath($match.FullName).TrimEnd('\', '/')
+        }
+    }
+    return $null
+}
 function Find-SystemMsys2 {
     param([switch] $SearchFixedDrives)
     $candidates = @()
@@ -163,8 +179,8 @@ function Find-SystemMsys2 {
         Write-Host '[playground] Searching fixed drives for an MSYS2 installation...'
         foreach ($drive in [IO.DriveInfo]::GetDrives()) {
             if ($drive.DriveType -ne [IO.DriveType]::Fixed) { continue }
-            foreach ($match in Get-ChildItem -LiteralPath $drive.RootDirectory.FullName -Directory `
-                -Filter 'msys64' -Recurse -Force -ErrorAction SilentlyContinue) {
+            foreach ($match in (Get-ChildItem -LiteralPath $drive.RootDirectory.FullName -Directory `
+                -Filter 'msys64' -Recurse -Force -ErrorAction SilentlyContinue)) {
                 if (Test-Msys2Installation -Path $match.FullName) {
                     return [IO.Path]::GetFullPath($match.FullName).TrimEnd('\', '/')
                 }
@@ -183,6 +199,15 @@ function Select-Msys2Root {
             Root = [IO.Path]::GetFullPath($Msys2Root).TrimEnd('\', '/')
             ReadOnly = $true
         }
+    }
+    $searchPathParameter = Get-Variable -Name Msys2SearchPath -ValueOnly -Scope 1 -ErrorAction SilentlyContinue
+    if ($searchPathParameter) {
+        $searchResult = Find-Msys2UnderPath -Path $searchPathParameter
+        if (-not $searchResult) {
+            throw "No valid MSYS2 installation was found under $searchPathParameter."
+        }
+        Write-Host "[playground] Reusing MSYS2 found at $searchResult."
+        return [pscustomobject]@{ Root = $searchResult; ReadOnly = $true }
     }
     $canPrompt = $Host.Name -eq 'ConsoleHost' -and $env:CI -notin @('true', '1')
     $detectedRoot = Find-SystemMsys2 -SearchFixedDrives:($UseExistingMsys2 -or $canPrompt)
@@ -420,7 +445,7 @@ public static class PdPlaygroundEnvironment {
 if ($DryRun) {
     Write-Host "[playground] Preview only; root: $PlaygroundRoot"
     if (-not $OnlyCodex) {
-        Write-Host "[playground] Install MSYS2 in $msysRoot by default; use -UseExistingMsys2 or -Msys2Root to reuse an existing installation."
+        Write-Host "[playground] Install MSYS2 in $msysRoot by default; use -UseExistingMsys2 or -Msys2SearchPath to find and reuse an existing installation."
         Write-Host '[playground] Reused MSYS2 is read-only: check required packages without upgrades or installs; stop if prerequisites are missing.'
         Write-Host '[playground] Install Bash, tmux, git, Rust and fzf only in managed MSYS2; build Yazi with portable cache/state overrides.'
         Write-Host '[playground] Download portable WezTerm and btop4win under install/.'
