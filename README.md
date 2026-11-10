@@ -79,7 +79,7 @@ The full setup also includes these Yazi helpers:
 | File and content searches | `fd`, `rg`, `fzf` |
 | Directory history | `zoxide` |
 | SVG and other image previews | `resvg`, ImageMagick |
-| Linux clipboard and default opening | `xclip`, `wl-clipboard`, `xdg-utils` |
+| Linux clipboard and default opening | `xclip`, `wl-clipboard`, GLib's `gio` |
 | Icons | JetBrainsMono Nerd Font, loaded privately by WezTerm |
 
 In the managed Yazi, **Enter opens an action chooser**:

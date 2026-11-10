@@ -200,8 +200,9 @@ function Write-WindowsLaunchers {
             }
             'code' {
                 $lines += 'set "VSCODE_PORTABLE=' + $configDirectory + '\vscode"'
-                $lines += 'set "ELECTRON_RUN_AS_NODE=1"'
-                $extra = '"' + (Join-Path (Split-Path -Parent $target) 'resources\app\out\cli.js') + '" --user-data-dir "' + $configDirectory + '\vscode\user-data" --extensions-dir "' + $configDirectory + '\vscode\extensions" '
+                # The bundled launcher knows VS Code's versioned internal layout.
+                $target = Join-Path (Split-Path -Parent $target) 'bin\code.cmd'
+                $extra = '--user-data-dir "' + $configDirectory + '\vscode\user-data" --extensions-dir "' + $configDirectory + '\vscode\extensions" '
             }
             'notepad++' { $extra = '-multiInst -settingsDir="' + $configDirectory + '\notepad++" ' }
             'yazi' {

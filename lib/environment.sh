@@ -253,9 +253,8 @@ EOF
       code)
         if [ "${PD_OS:-}" = windows ]; then
           printf 'export VSCODE_PORTABLE="$(cygpath -m "$PD_PLAYGROUND_ROOT/config/vscode")"\n'
-          printf 'export ELECTRON_RUN_AS_NODE=1\n'
-          printf 'exec %s %s --user-data-dir "$VSCODE_PORTABLE/user-data" --extensions-dir "$VSCODE_PORTABLE/extensions" "$@"\n' \
-            "$pd_target_q" "$(pd_quote "$(dirname "$pd_target")/resources/app/out/cli.js")"
+          printf 'exec sh %s --user-data-dir "$VSCODE_PORTABLE/user-data" --extensions-dir "$VSCODE_PORTABLE/extensions" "$@"\n' \
+            "$(pd_quote "$(dirname "$pd_target")/bin/code")"
         else
           printf 'export VSCODE_PORTABLE="$PD_PLAYGROUND_ROOT/config/vscode"\n'
           printf 'exec %s --user-data-dir "$PD_PLAYGROUND_ROOT/config/vscode/user-data" --extensions-dir "$PD_PLAYGROUND_ROOT/config/vscode/extensions" "$@"\n' "$pd_target_q"

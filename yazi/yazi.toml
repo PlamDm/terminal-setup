@@ -1,5 +1,10 @@
 # Enter opens this chooser. Use Right or l to enter a directory within Yazi.
 [opener]
+open = [
+  { run = 'gio open %s1', desc = "Open", for = "linux" },
+  { run = 'open %s', desc = "Open", for = "macos" },
+  { run = 'start "" %s1', desc = "Open", for = "windows", orphan = true },
+]
 rustifiedgit-file = [
   { run = 'rustifiedgit -p %d1', block = true, desc = "RustifiedGit (containing repository)" },
 ]

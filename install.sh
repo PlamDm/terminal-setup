@@ -156,7 +156,7 @@ install_unix_tools() {
   [ "$(pd_brew --prefix)" = "$PD_BREW" ] || die "Homebrew resolved outside playground."
   log "Installing tools into the playground Homebrew prefix."
   pd_brew install bash tmux yazi git file btop fzf ffmpeg sevenzip jq poppler fd ripgrep zoxide resvg imagemagick
-  if [ "$PD_OS" = linux ]; then pd_brew install xclip wl-clipboard xdg-utils; fi
+  if [ "$PD_OS" = linux ]; then pd_brew install xclip wl-clipboard glib; fi
   if [ "$PD_OS" = macos ]; then
     mkdir -p "$PD_INSTALL/apps"
     pd_brew install --cask --appdir="$PD_INSTALL/apps" wezterm
@@ -250,7 +250,7 @@ if [ "$PD_ONLY_CODEX" -ne 1 ]; then
     register_command notepad++ "$PD_NOTEPAD"
     register_command pwsh "$PD_PWSH"
   fi
-  for pd_cmd in file ffmpeg ffprobe 7z 7zz jq pdftoppm pdftotext pdfinfo fd rg zoxide resvg magick xclip wl-copy wl-paste xdg-open; do
+  for pd_cmd in file ffmpeg ffprobe 7z 7zz jq pdftoppm pdftotext pdfinfo fd rg zoxide resvg magick xclip wl-copy wl-paste gio; do
     pd_suffix=""; if [ "$PD_OS" = windows ]; then pd_suffix=.exe; fi
     if [ -x "$PD_TOOL_BIN/$pd_cmd$pd_suffix" ]; then register_command "$pd_cmd" "$PD_TOOL_BIN/$pd_cmd$pd_suffix";
     elif [ "$PD_OS" = windows ] && [ "$pd_cmd" = file ]; then register_command file "$PD_INSTALL/msys2/usr/bin/file.exe"; fi
