@@ -335,14 +335,18 @@ function Install-Codex {
     $saved = @{}
     foreach ($name in $names) { $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
     $previousUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $previousProcessPath = [Environment]::GetEnvironmentVariable('Path', 'Process')
     try {
         $env:CODEX_HOME = $codexHome
         $env:CODEX_INSTALL_DIR = $codexBin
         $env:CODEX_NON_INTERACTIVE = '1'
+        # The upstream installer invokes tar with Windows paths; prefer native tar over MSYS2 tar.
+        $env:PATH = (Join-Path $env:SystemRoot 'System32') + [IO.Path]::PathSeparator + $previousProcessPath
         Invoke-Checked -Program 'powershell.exe' -Arguments @(
             '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $temporary
         )
     } finally {
+        [Environment]::SetEnvironmentVariable('Path', $previousProcessPath, 'Process')
         # The upstream installer registers its own bin even for a custom root.
         if ($NoActivate) { [Environment]::SetEnvironmentVariable('Path', $previousUserPath, 'User') }
         foreach ($name in $names) {

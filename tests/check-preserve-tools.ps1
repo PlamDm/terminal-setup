@@ -7,7 +7,7 @@ $PlaygroundRoot = $root
 $installRoot = Join-Path $root 'install'
 $configDirectory = Join-Path $root 'config'
 $cacheDirectory = Join-Path $root 'cache'
-$names = @('PD_COPILOT_EXE', 'PD_PWSH_EXE', 'PD_NOTEPAD_EXE', 'PD_CODE_EXE')
+$names = @('PD_COPILOT_EXE', 'PD_PWSH_EXE', 'PD_NOTEPAD_EXE', 'PD_CODE_EXE', 'PATH')
 $saved = @{}
 foreach ($name in $names) { $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 function Assert {
@@ -100,6 +100,46 @@ try {
     }
     Assert ($env:PD_COPILOT_EXE -eq $activeCopilot) 'Setup switched the active Copilot version.'
     Assert ((Get-InstalledSnapshot) -ceq $before) 'Setup changed an existing tool installation.'
+
+    $previousPlaygroundRoot = $PlaygroundRoot
+    $previousInstallRoot = $installRoot
+    $previousConfigDirectory = $configDirectory
+    $previousCacheDirectory = $cacheDirectory
+    $previousProcessPath = $env:PATH
+    $codexFixtureRoot = Join-Path $root 'codex-path-fixture'
+    $PlaygroundRoot = $codexFixtureRoot
+    $installRoot = Join-Path $codexFixtureRoot 'install'
+    $configDirectory = Join-Path $codexFixtureRoot 'config'
+    $cacheDirectory = Join-Path $codexFixtureRoot 'cache'
+    $NoActivate = $true
+    $fixtureTarDirectory = Join-Path $root 'fake-msys\usr\bin'
+    [IO.Directory]::CreateDirectory($fixtureTarDirectory) | Out-Null
+    [IO.File]::WriteAllText((Join-Path $fixtureTarDirectory 'tar.exe'), 'MSYS tar fixture')
+    $env:PATH = $fixtureTarDirectory + [IO.Path]::PathSeparator + $previousProcessPath
+    function Invoke-WebRequest {
+        param([string] $Uri, [string] $OutFile, [switch] $UseBasicParsing)
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $OutFile)) | Out-Null
+        [IO.File]::WriteAllText($OutFile, 'Codex installer fixture')
+    }
+    function Invoke-Checked {
+        param([string] $Program, [string[]] $Arguments)
+        $script:codexInstallerTar = (Get-Command tar.exe -ErrorAction Stop).Source
+        [IO.Directory]::CreateDirectory($env:CODEX_INSTALL_DIR) | Out-Null
+        [IO.File]::WriteAllText((Join-Path $env:CODEX_INSTALL_DIR 'codex.exe'), 'Codex fixture')
+    }
+    try {
+        Install-Codex
+        $nativeTar = Join-Path $env:SystemRoot 'System32\tar.exe'
+        Assert ($script:codexInstallerTar -ieq $nativeTar) "Codex installer selected non-native tar: $script:codexInstallerTar"
+        Assert ($env:PATH -ceq $fixtureTarDirectory + [IO.Path]::PathSeparator + $previousProcessPath) `
+            'Codex installer did not restore PATH after the install.'
+    } finally {
+        $PlaygroundRoot = $previousPlaygroundRoot
+        $installRoot = $previousInstallRoot
+        $configDirectory = $previousConfigDirectory
+        $cacheDirectory = $previousCacheDirectory
+        [Environment]::SetEnvironmentVariable('Path', $previousProcessPath, 'Process')
+    }
 
     [IO.File]::WriteAllText($manifest, '')
     $message = ''
