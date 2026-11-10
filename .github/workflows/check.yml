@@ -38,6 +38,11 @@ jobs:
       - name: Keep delegated installer PATH changes isolated in manual mode
         shell: powershell
         run: .\tests\check-codex-isolation.ps1
+      - name: Install verified portable apps and run their native command launchers
+        shell: powershell
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: .\tests\check-portable.ps1
   windows-rustifiedgit:
     runs-on: windows-latest
     steps:
@@ -78,3 +83,25 @@ jobs:
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$PWD/tests/check-activation.ps1")" \
             -ActivationFile "$(cygpath -w "$PD_ROOT/config/shell/env-extra.ps1")" \
             -ExpectedDirectory "$(cygpath -w "$PD_ROOT/bin")"
+      - name: Build Yazi with private cache and state directories
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          PD_DIR="$PWD"
+          PD_ROOT="$PWD/.ci-playground"
+          PD_INSTALL="$PD_ROOT/install"
+          PD_TEMP="$PD_ROOT/tmp/yazi-build"
+          PD_OS=windows
+          mkdir -p "$PD_TEMP"
+          log() { printf '%s\n' "$*"; }
+          . lib/rustifiedgit.sh
+          . lib/yazi.sh
+          pd_install_rust() {
+            PD_CARGO=/ucrt64/bin/cargo.exe
+            PD_RUSTC=/ucrt64/bin/rustc.exe
+          }
+          install_portable_yazi_windows
+          YAZI_CONFIG_HOME="$(cygpath -m "$PD_ROOT/config/yazi")" \
+          YAZI_CACHE_HOME="$(cygpath -m "$PD_ROOT/cache/yazi")" \
+          YAZI_STATE_HOME="$(cygpath -m "$PD_ROOT/state/yazi")" \
+            "$PD_INSTALL/yazi/bin/ya.exe" --version

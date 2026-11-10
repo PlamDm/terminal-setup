@@ -10,7 +10,17 @@ pd_write_environment() {
   mkdir -p "$PD_ROOT/config/shell" "$PD_ROOT/config/bash" "$PD_ROOT/config/tmux" \
     "$PD_ROOT/config/rustifiedgit" "$PD_ROOT/config/yazi" "$PD_ROOT/config/btop" \
     "$PD_ROOT/config/fzf" "$PD_ROOT/config/codex" "$PD_ROOT/config/wezterm" \
-    "$PD_ROOT/config/path" "$PD_ROOT/state/bash"
+    "$PD_ROOT/config/path" "$PD_ROOT/state/bash" "$PD_ROOT/config/copilot" \
+    "$PD_ROOT/config/vscode" "$PD_ROOT/config/notepad++" "$PD_ROOT/config/git" \
+    "$PD_ROOT/cache/yazi" "$PD_ROOT/cache/copilot" "$PD_ROOT/state/zoxide" \
+    "$PD_ROOT/state/tmux" "$PD_ROOT/state/data" "$PD_ROOT/state/yazi" "$PD_ROOT/tmp"
+  if [ ! -e "$PD_ROOT/config/copilot/settings.json" ]; then
+    printf '{"autoUpdate":false}\n' > "$PD_ROOT/config/copilot/settings.json"
+  fi
+  mkdir -p "$PD_ROOT/config/vscode/user-data/User" "$PD_ROOT/config/vscode/extensions" "$PD_ROOT/config/vscode/tmp"
+  if [ ! -e "$PD_ROOT/config/vscode/user-data/User/settings.json" ]; then
+    printf '{"update.mode":"none"}\n' > "$PD_ROOT/config/vscode/user-data/User/settings.json"
+  fi
   {
     printf '# Managed by terminal-setup; usable by Bash, Zsh and POSIX shells.\n'
     printf '_pd_playground_bin=%s\n' "$(pd_quote "$PD_ROOT/bin")"
@@ -62,6 +72,9 @@ EOF
 }
 EOF
   } > "$PD_ROOT/config/shell/env-extra.ps1"
+  printf '# Source this file to add the tools to an existing shell.\n. %s\n' \
+    "$(pd_quote "$PD_ROOT/config/shell/env-extra.sh")" > "$PD_ROOT/activate.sh"
+  printf '. "$PSScriptRoot/config/shell/env-extra.ps1"\n' > "$PD_ROOT/activate.ps1"
   if [ ! -e "$PD_ROOT/config/bash/bashrc" ]; then
     {
       printf '. %s\n' "$(pd_quote "$PD_ROOT/config/shell/env.sh")"
@@ -199,6 +212,21 @@ pd_write_launcher() {
     printf '#!/bin/sh\n# Managed playground launcher.\nPD_PLAYGROUND_ROOT=%s\n' "$pd_root_q"
     printf '. "$PD_PLAYGROUND_ROOT/config/shell/env.sh"\n'
     printf 'export XDG_CONFIG_HOME="$PD_PLAYGROUND_ROOT/config"\n'
+    cat <<'EOF'
+export XDG_CACHE_HOME="$PD_PLAYGROUND_ROOT/cache"
+export XDG_DATA_HOME="$PD_PLAYGROUND_ROOT/state/data"
+export XDG_STATE_HOME="$PD_PLAYGROUND_ROOT/state"
+export TMPDIR="$PD_PLAYGROUND_ROOT/tmp"
+export _ZO_DATA_DIR="$PD_PLAYGROUND_ROOT/state/zoxide"
+export GIT_CONFIG_GLOBAL="$PD_PLAYGROUND_ROOT/config/git/config"
+case "$(uname -s)" in
+  MSYS*|MINGW*)
+    export TEMP="$(cygpath -m "$PD_PLAYGROUND_ROOT/tmp")"
+    export TMP="$TEMP"
+    export PATH="$PD_PLAYGROUND_ROOT/bin:$PD_PLAYGROUND_ROOT/install/msys2/ucrt64/bin:$PD_PLAYGROUND_ROOT/install/msys2/usr/bin:$PATH" ;;
+  *) export PATH="$PD_PLAYGROUND_ROOT/bin:$PD_PLAYGROUND_ROOT/install/homebrew/bin:$PATH" ;;
+esac
+EOF
     case "$pd_name" in
       codex)
         cat <<'EOF'
@@ -207,7 +235,32 @@ case "$(uname -s)" in MSYS*|MINGW*) _pd_codex_home="$(cygpath -m "$_pd_codex_hom
 EOF
         printf 'exec env CODEX_HOME="$_pd_codex_home" %s "$@"\n' "$pd_target_q" ;;
       rustifiedgit) printf 'exec %s --use-config-dir "$PD_PLAYGROUND_ROOT/config/rustifiedgit" "$@"\n' "$pd_target_q" ;;
-      tmux) printf 'exec %s -f "$PD_PLAYGROUND_ROOT/config/tmux/tmux.conf" "$@"\n' "$pd_target_q" ;;
+      tmux) printf 'exec %s -S "$PD_PLAYGROUND_ROOT/state/tmux/socket" -f "$PD_PLAYGROUND_ROOT/config/tmux/tmux.conf" "$@"\n' "$pd_target_q" ;;
+      copilot)
+        if [ "${PD_OS:-}" = windows ]; then
+          printf 'export PATH=%s:"$PATH"\n' "$(pd_quote "$(dirname "$PD_PWSH")")"
+        fi
+        cat <<'EOF'
+export COPILOT_HOME="$PD_PLAYGROUND_ROOT/config/copilot"
+export COPILOT_CACHE_HOME="$PD_PLAYGROUND_ROOT/cache/copilot"
+export COPILOT_AUTO_UPDATE=false
+case "$(uname -s)" in MSYS*|MINGW*)
+  COPILOT_HOME="$(cygpath -m "$COPILOT_HOME")"
+  COPILOT_CACHE_HOME="$(cygpath -m "$COPILOT_CACHE_HOME")" ;;
+esac
+EOF
+        printf 'exec %s "$@"\n' "$pd_target_q" ;;
+      code)
+        if [ "${PD_OS:-}" = windows ]; then
+          printf 'export VSCODE_PORTABLE="$(cygpath -m "$PD_PLAYGROUND_ROOT/config/vscode")"\n'
+          printf 'export ELECTRON_RUN_AS_NODE=1\n'
+          printf 'exec %s %s --user-data-dir "$VSCODE_PORTABLE/user-data" --extensions-dir "$VSCODE_PORTABLE/extensions" "$@"\n' \
+            "$pd_target_q" "$(pd_quote "$(dirname "$pd_target")/resources/app/out/cli.js")"
+        else
+          printf 'export VSCODE_PORTABLE="$PD_PLAYGROUND_ROOT/config/vscode"\n'
+          printf 'exec %s --user-data-dir "$PD_PLAYGROUND_ROOT/config/vscode/user-data" --extensions-dir "$PD_PLAYGROUND_ROOT/config/vscode/extensions" "$@"\n' "$pd_target_q"
+        fi ;;
+      notepad++) printf 'exec %s -multiInst -settingsDir="$(cygpath -m "$PD_PLAYGROUND_ROOT/config/notepad++")" "$@"\n' "$pd_target_q" ;;
       wezterm) printf 'exec %s --config-file "$PD_PLAYGROUND_ROOT/config/wezterm/wezterm.lua" "$@"\n' "$pd_target_q" ;;
       bash)
         printf 'export BASH_ENV="$PD_PLAYGROUND_ROOT/config/bash/bashrc"\n'
@@ -215,9 +268,15 @@ EOF
       yazi|ya)
         cat <<'EOF'
 export YAZI_CONFIG_HOME="$PD_PLAYGROUND_ROOT/config/yazi"
+export YAZI_CACHE_HOME="$PD_PLAYGROUND_ROOT/cache/yazi"
+export YAZI_STATE_HOME="$PD_PLAYGROUND_ROOT/state/yazi"
+export XDG_RUNTIME_DIR="$PD_PLAYGROUND_ROOT/tmp"
 case "$(uname -s)" in
   MSYS*|MINGW*)
     YAZI_CONFIG_HOME="$(cygpath -m "$YAZI_CONFIG_HOME")"
+    YAZI_CACHE_HOME="$(cygpath -m "$YAZI_CACHE_HOME")"
+    YAZI_STATE_HOME="$(cygpath -m "$YAZI_STATE_HOME")"
+    XDG_RUNTIME_DIR="$(cygpath -m "$XDG_RUNTIME_DIR")"
     export YAZI_CONFIG_HOME
     export YAZI_FILE_ONE="$(cygpath -m "$PD_PLAYGROUND_ROOT/install/msys2/usr/bin/file.exe")" ;;
 esac

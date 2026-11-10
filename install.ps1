@@ -4,6 +4,7 @@ param(
     [switch] $DryRun,
     [switch] $OnlyCodex,
     [switch] $NoActivate,
+    [switch] $Activate,
     [ValidatePattern('^[A-Za-z]:[\\/][A-Za-z0-9_\\/-]+$')]
     [string] $PlaygroundRoot = (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'playground'),
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._/-]*$')]
@@ -12,6 +13,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+if ($Activate -and $NoActivate) { throw 'Choose either -Activate or -NoActivate.' }
+$NoActivate = -not $Activate
 $installRoot = Join-Path $PlaygroundRoot 'install'
 $binDirectory = Join-Path $PlaygroundRoot 'bin'
 $configDirectory = Join-Path $PlaygroundRoot 'config'
@@ -89,15 +92,16 @@ function Install-Msys2 {
         return
     }
     $release = Get-GitHubRelease -Repo 'msys2/msys2-installer' -StableMsys2
-    $asset = $release.assets | Where-Object { $_.name -match '^msys2-x86_64-.*\.exe$' } | Select-Object -First 1
-    if (-not $asset) { throw 'No stable x64 MSYS2 installer was found.' }
-    $installer = Save-Asset -Asset $asset -Release $release
-    $process = Start-Process -FilePath $installer -ArgumentList @(
-        'in', '--confirm-command', '--accept-messages', '--root', $msysRoot.Replace('\', '/')
-    ) -PassThru -Wait
-    if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $bashPath)) {
-        throw "MSYS2 did not install successfully under $msysRoot."
-    }
+    $asset = $release.assets | Where-Object { $_.name -match '^msys2-base-x86_64-.*\.tar\.xz$' } | Select-Object -First 1
+    if (-not $asset) { throw 'No stable x64 MSYS2 base archive was found.' }
+    $archive = Save-Asset -Asset $asset -Release $release
+    $staging = Join-Path (Join-Path $PlaygroundRoot 'tmp') ('msys2-' + [Guid]::NewGuid().ToString('N'))
+    [IO.Directory]::CreateDirectory($staging) | Out-Null
+    try {
+        Invoke-Checked -Program 'tar.exe' -Arguments @('-xJf', $archive, '-C', $staging)
+        Move-Item -LiteralPath (Join-Path $staging 'msys64') -Destination $msysRoot
+    } finally { Remove-Item -LiteralPath $staging -Recurse -Force }
+    if (-not (Test-Path -LiteralPath $bashPath)) { throw "MSYS2 archive did not create $bashPath." }
 }
 function Install-Codex {
     $codexHome = Join-Path $configDirectory 'codex'
@@ -162,8 +166,8 @@ function Configure-Btop {
     # btop4win requires a co-located config; a hard link keeps it editable in config/.
     if (Test-Path -LiteralPath $bundled) { Remove-Item -LiteralPath $bundled -Force }
     New-Item -ItemType HardLink -Path $bundled -Target $central | Out-Null
-    try { Invoke-Checked -Program $Executable -Arguments @('--version') }
-    catch { throw 'btop4win requires the Microsoft Visual C++ x64 runtime already installed on Windows.' }
+    # The portable release links its C++ runtime statically.
+    Invoke-Checked -Program $Executable -Arguments @('--version')
 }
 function Write-WindowsLaunchers {
     $manifest = Join-Path $PlaygroundRoot 'state\windows-commands.tsv'
@@ -176,21 +180,48 @@ function Write-WindowsLaunchers {
             '@echo off', 'setlocal', 'set "MSYSTEM=UCRT64"',
             'set "CHERE_INVOKING=1"', 'set "MSYS2_PATH_TYPE=inherit"',
             ('set "PATH=' + $binDirectory + ';' + $msysRoot + '\ucrt64\bin;' + $msysRoot + '\usr\bin;%PATH%"'),
-            ('set "XDG_CONFIG_HOME=' + $configDirectory + '"')
+            ('set "XDG_CONFIG_HOME=' + $configDirectory + '"'),
+            ('set "XDG_CACHE_HOME=' + $cacheDirectory + '"'),
+            ('set "XDG_DATA_HOME=' + $PlaygroundRoot + '\state\data"'),
+            ('set "XDG_STATE_HOME=' + $PlaygroundRoot + '\state"'),
+            ('set "TEMP=' + $PlaygroundRoot + '\tmp"'),
+            ('set "TMP=' + $PlaygroundRoot + '\tmp"'),
+            ('set "_ZO_DATA_DIR=' + $PlaygroundRoot + '\state\zoxide"'),
+            ('set "GIT_CONFIG_GLOBAL=' + $configDirectory + '\git\config"')
         )
         $extra = ''
         switch ($name) {
             'codex' { $lines += 'set "CODEX_HOME=' + $configDirectory + '\codex"' }
+            'copilot' {
+                $lines += 'set "COPILOT_HOME=' + $configDirectory + '\copilot"'
+                $lines += 'set "COPILOT_CACHE_HOME=' + $cacheDirectory + '\copilot"'
+                $lines += 'set "COPILOT_AUTO_UPDATE=false"'
+                $lines += 'set "PATH=' + (Split-Path -Parent $env:PD_PWSH_EXE) + ';%PATH%"'
+            }
+            'code' {
+                $lines += 'set "VSCODE_PORTABLE=' + $configDirectory + '\vscode"'
+                $lines += 'set "ELECTRON_RUN_AS_NODE=1"'
+                $extra = '"' + (Join-Path (Split-Path -Parent $target) 'resources\app\out\cli.js') + '" --user-data-dir "' + $configDirectory + '\vscode\user-data" --extensions-dir "' + $configDirectory + '\vscode\extensions" '
+            }
+            'notepad++' { $extra = '-multiInst -settingsDir="' + $configDirectory + '\notepad++" ' }
             'yazi' {
                 $lines += 'set "YAZI_CONFIG_HOME=' + $configDirectory + '\yazi"'
+                $lines += 'set "YAZI_CACHE_HOME=' + $cacheDirectory + '\yazi"'
+                $lines += 'set "YAZI_STATE_HOME=' + $PlaygroundRoot + '\state\yazi"'
+                $lines += 'set "XDG_RUNTIME_DIR=' + $PlaygroundRoot + '\tmp"'
                 $lines += 'set "YAZI_FILE_ONE=' + $msysRoot + '\usr\bin\file.exe"'
             }
-            'ya' { $lines += 'set "YAZI_CONFIG_HOME=' + $configDirectory + '\yazi"' }
+            'ya' {
+                $lines += 'set "YAZI_CONFIG_HOME=' + $configDirectory + '\yazi"'
+                $lines += 'set "YAZI_CACHE_HOME=' + $cacheDirectory + '\yazi"'
+                $lines += 'set "YAZI_STATE_HOME=' + $PlaygroundRoot + '\state\yazi"'
+                $lines += 'set "XDG_RUNTIME_DIR=' + $PlaygroundRoot + '\tmp"'
+            }
             'bash' {
                 $lines += 'set "BASH_ENV=' + $configDirectory + '\bash\bashrc"'
                 $extra = '--rcfile "' + $configDirectory + '\bash\bashrc" '
             }
-            'tmux' { $extra = '-f "' + $configDirectory + '\tmux\tmux.conf" ' }
+            'tmux' { $extra = '-S "' + $PlaygroundRoot + '\state\tmux\socket" -f "' + $configDirectory + '\tmux\tmux.conf" ' }
             'rustifiedgit' { $extra = '--use-config-dir "' + $configDirectory + '\rustifiedgit" ' }
             'wezterm' { $extra = '--config-file "' + $configDirectory + '\wezterm\wezterm.lua" ' }
         }
@@ -233,8 +264,9 @@ if ($DryRun) {
     Write-Host "[playground] Preview only; root: $PlaygroundRoot"
     if (-not $OnlyCodex) {
         Write-Host "[playground] Install native MSYS2 in $msysRoot."
-        Write-Host '[playground] Install Bash, tmux, Yazi, git, Rust and fzf inside MSYS2.'
+        Write-Host '[playground] Install Bash, tmux, git, Rust and fzf inside MSYS2; build Yazi with portable cache/state overrides.'
         Write-Host '[playground] Download portable WezTerm and btop4win under install/.'
+        Write-Host '[playground] Add Yazi preview/search helpers, portable PowerShell 7, GitHub Copilot CLI, VS Code, Notepad++ and a private Nerd Font.'
         Write-Host "[playground] Build PlamDm/RustifiedGit at $RustifiedGitRef."
     }
     Write-Host '[playground] Install native Codex CLI under install/codex, with config/codex state.'
@@ -249,11 +281,11 @@ if ($DryRun) {
 if ($env:OS -ne 'Windows_NT' -or -not [Environment]::Is64BitOperatingSystem) {
     throw 'This bootstrap requires 64-bit Windows. On macOS/Linux use install.sh.'
 }
-foreach ($directory in @($installRoot, $binDirectory, $configDirectory, $cacheDirectory)) {
+foreach ($directory in @($installRoot, $binDirectory, $configDirectory, $cacheDirectory, (Join-Path $PlaygroundRoot 'tmp'))) {
     [IO.Directory]::CreateDirectory($directory) | Out-Null
 }
 Install-Msys2
-$environmentNames = @('MSYSTEM', 'CHERE_INVOKING', 'MSYS2_PATH_TYPE', 'PD_MSYS2_READY', 'PD_WEZTERM_EXE', 'PD_BTOP_EXE', 'PD_REUSE_CODEX')
+$environmentNames = @('MSYSTEM', 'CHERE_INVOKING', 'MSYS2_PATH_TYPE', 'PD_MSYS2_READY', 'PD_WEZTERM_EXE', 'PD_BTOP_EXE', 'PD_COPILOT_EXE', 'PD_CODE_EXE', 'PD_NOTEPAD_EXE', 'PD_PWSH_EXE', 'TEMP', 'TMP')
 $savedEnvironment = @{}
 foreach ($name in $environmentNames) { $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 try {
@@ -261,8 +293,8 @@ try {
     $env:CHERE_INVOKING = '1'
     $env:MSYS2_PATH_TYPE = 'inherit'
     $env:PD_MSYS2_READY = '1'
-    $reuseCodex = $NoActivate -and $null -ne (Get-Command codex -CommandType Application -ErrorAction SilentlyContinue)
-    $env:PD_REUSE_CODEX = if ($reuseCodex) { '1' } else { '0' }
+    $env:TEMP = Join-Path $PlaygroundRoot 'tmp'
+    $env:TMP = $env:TEMP
     $bash = Join-Path $msysRoot 'usr\bin\bash.exe'
     $cygpath = Join-Path $msysRoot 'usr\bin\cygpath.exe'
     Invoke-Checked -Program $bash -Arguments @('--login', '-c', 'true')
@@ -272,19 +304,17 @@ try {
         $env:PD_WEZTERM_EXE = Install-ZipTool -Repo 'wezterm/wezterm' -Pattern '^WezTerm-windows-.*\.zip$' -Name 'wezterm' -Executable 'wezterm.exe'
         $env:PD_BTOP_EXE = Install-ZipTool -Repo 'aristocratos/btop4win' -Pattern '^btop4win-x64\.zip$' -Name 'btop' -Executable 'btop4win.exe'
         Configure-Btop -Executable $env:PD_BTOP_EXE
+        . (Join-Path $PSScriptRoot 'lib\portable.ps1')
+        Install-PortableWindowsTools
     }
-    if ($reuseCodex) {
-        Write-Host '[playground] Keeping the existing Codex command in your terminal setup.'
-    } else {
-        Install-Codex
-    }
+    Install-Codex
     $unixRoot = & $cygpath -u $PlaygroundRoot
     if ($LASTEXITCODE -ne 0) { throw 'Could not translate the playground root.' }
     $unixScript = & $cygpath -u (Join-Path $PSScriptRoot 'install.sh')
     if ($LASTEXITCODE -ne 0) { throw 'Could not translate the installer path.' }
     $arguments = @('--login', $unixScript.Trim(), '--root', $unixRoot.Trim(), '--rustifiedgit-ref', $RustifiedGitRef)
     if ($OnlyCodex) { $arguments += '--only-codex' }
-    if ($NoActivate) { $arguments += '--no-activate' }
+    if ($NoActivate) { $arguments += '--no-activate' } else { $arguments += '--activate' }
     Invoke-Checked -Program $bash -Arguments $arguments
     Write-WindowsLaunchers
     if (-not $NoActivate) { Register-WindowsPath }

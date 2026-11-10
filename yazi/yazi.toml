@@ -1,0 +1,22 @@
+# Enter opens this chooser. Use Right or l to enter a directory within Yazi.
+[opener]
+rustifiedgit-file = [
+  { run = 'rustifiedgit -p %d1', block = true, desc = "RustifiedGit (containing repository)" },
+]
+rustifiedgit-directory = [
+  { run = 'rustifiedgit -p %s1', block = true, desc = "RustifiedGit (repository)" },
+]
+vscode = [
+  { run = 'code %s', orphan = true, desc = "VS Code", for = "unix" },
+  { run = 'code.cmd %s', orphan = true, desc = "VS Code", for = "windows" },
+]
+notepad = [
+  { run = 'notepad++.cmd %s', orphan = true, desc = "Notepad++", for = "windows" },
+]
+
+[open]
+prepend_rules = [
+  { mime = "folder/*", use = [ "open", "rustifiedgit-directory", "vscode" ] },
+  { mime = "inode/directory", use = [ "open", "rustifiedgit-directory", "vscode" ] },
+  { url = "*", use = [ "open", "rustifiedgit-file", "vscode", "notepad" ] },
+]

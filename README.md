@@ -1,224 +1,237 @@
 # Terminal setup
 
-Install your terminal tools with one installer: **Yazi, tmux, fzf, WezTerm,
-RustifiedGit, Bash, Git, btop, and Codex CLI**. Supports macOS, Linux, and native
-Windows through MSYS2.
+Install **Yazi, tmux, fzf, WezTerm, RustifiedGit, Bash, Git, btop, Codex CLI,
+GitHub Copilot CLI and VS Code**, plus **Notepad++ and PowerShell 7 on Windows**.
+Tools, dependencies, managed configuration, caches and state live under a
+user-selected folder. No administrator installation is performed.
+
+By default, installation leaves your shell profiles and persistent PATH alone.
+Source one file to add the tools to an existing terminal.
 
 ## macOS and Linux
 
 ```sh
 git clone https://github.com/PlamDm/terminal-setup.git
 cd terminal-setup
-bash install.sh --dry-run
-bash install.sh
+bash install.sh --dry-run --root "$HOME/my-tools"
+bash install.sh --root "$HOME/my-tools"
+source "$HOME/my-tools/activate.sh"
 ```
 
-Use a normal user account. Bootstrap requires Bash, Git, curl, and tar. Native
-builds require a C compiler and platform developer tools, such as Xcode Command
-Line Tools on macOS. The installer keeps its Homebrew prefix and Rust toolchain
-inside the chosen installation directory.
+Use a normal user account and an absolute directory without spaces. The default
+is `~/playground`. Bootstrap needs Bash, Git, curl, tar and platform developer
+tools: Xcode Command Line Tools on macOS, or a working C/C++ build toolchain on
+Linux. These are OS prerequisites; this installer does not install them globally.
 
-Choose a different absolute directory:
+Packages and their library dependencies use a separate Homebrew prefix inside
+`install/homebrew`; an existing Homebrew installation is not reused. Custom
+prefixes can require lengthy source builds. Rustup and Cargo also stay inside
+the selected root. Copilot CLI is the standalone distribution, so Node.js is not
+required. VS Code uses its official portable archive for the current architecture.
 
-```sh
-bash install.sh --root "$HOME/tools"
-```
-
-Full installs require a directory without spaces. A custom Homebrew prefix may
-require packages to compile from source, so a first install can take time.
-Existing projects and application configuration are preserved on reruns.
+Linux GUI tools also require a supported desktop session and the host libraries
+required by [VS Code](https://code.visualstudio.com/docs/setup/linux) and
+[WezTerm](https://wezterm.org/install/linux.html). The installer does not change
+system packages, display servers, kernel settings or Electron sandbox permissions.
+Notepad++ is a Windows application; it is installed and offered in Yazi on Windows.
 
 ## Native Windows
 
-Clone or download this repository, then run from PowerShell 5.1 or PowerShell 7:
+From PowerShell 5.1 or newer on x64 Windows 10/11:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -DryRun
-powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -DryRun -PlaygroundRoot D:\my-tools
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -PlaygroundRoot D:\my-tools
+. "D:\my-tools\activate.ps1"
 ```
 
-Choose another directory with `-PlaygroundRoot D:\playground`. Windows uses
-MSYS2's x64 UCRT64 packages for Bash, tmux, Yazi, fzf, Git, and Rust. RustifiedGit
-is compiled into a native `.exe`; MSYS2 supplies the compiler and dependencies.
-WezTerm is installed from its portable ZIP. The `btop` command launches
-btop4win's build without hardware-monitoring administrator requirements.
+Choose a user-writable directory without spaces or special characters, on a
+filesystem supporting junctions and hard links (normally NTFS). Windows' built-in
+`tar.exe` is required. The default is `%USERPROFILE%\playground`.
 
-The MSYS2 install path must not contain spaces or special characters. Close
-other shells using this MSYS2 installation before updating its runtime.
-btop4win requires Microsoft's Visual C++ x64 runtime to be installed already.
+The installer extracts MSYS2's official base archive into `install/msys2`, with
+no setup registration or Start menu shortcuts. Its UCRT64 packages supply Git
+helpers, Rust and their library dependencies; Bash and tmux use MSYS2. Yazi 26.9.1
+is compiled with a small cache/state directory override because the stock Windows
+release otherwise uses AppData regardless of XDG settings.
+RustifiedGit is built into a native `.exe`. WezTerm, btop4win, Copilot, PowerShell
+7, VS Code and Notepad++ use portable archives. PowerShell 7 is included for
+Copilot; its .NET runtime is bundled. btop4win uses the release without elevated
+hardware-monitoring requirements.
 
-Both CMD launchers and Bash launchers are generated, so the commands work from
-PowerShell, CMD, MSYS2 Bash, and WezTerm. Restart existing terminals and IDEs
-when the installer finishes so they receive the updated user PATH.
+Both Bash and CMD launchers are generated. Commands work from PowerShell, CMD,
+MSYS2 Bash and WezTerm after activating the setup. Close processes using this
+MSYS2 installation before updating it, and close apps before replacing their
+executables. PowerShell's `-Activate` explicitly enables persistent user PATH
+registration; it is off by default.
 
-## Layout
+## Dependencies and Yazi defaults
 
-The default root is `~/playground`, including `%USERPROFILE%\playground` on
-Windows:
+The package managers install transitive library dependencies under the root.
+The full setup also includes these Yazi helpers:
 
-```text
-playground/
-├── bin/                     user-facing command launchers
-├── install/
-│   ├── homebrew/             macOS/Linux packages
-│   ├── apps/WezTerm.app      macOS terminal application
-│   ├── msys2/                native Windows packages and Rust compiler
-│   ├── wezterm/              portable Windows terminal
-│   ├── btop/                 portable Windows system monitor
-│   ├── rust/                 macOS/Linux Rust command shims
-│   ├── rustup/               macOS/Linux Rust toolchains
-│   ├── rustifiedgit/bin/     compiled Git client
-│   └── codex/                standalone CLI and package payload
-├── config/                   editable application configuration
-├── state/                    installed revisions and shell history
-├── cache/                    downloads, Cargo dependencies and build artifacts
-└── tmp/                      temporary installation checkouts
-```
+| Feature | Included tools |
+| --- | --- |
+| File types | `file` |
+| Video thumbnails | `ffmpeg`, `ffprobe` |
+| Archive previews and extraction | Full 7-Zip |
+| JSON and PDF previews | `jq`, Poppler |
+| File and content searches | `fd`, `rg`, `fzf` |
+| Directory history | `zoxide` |
+| SVG and other image previews | `resvg`, ImageMagick |
+| Linux clipboard and default opening | `xclip`, `wl-clipboard`, `xdg-utils` |
+| Icons | JetBrainsMono Nerd Font, loaded privately by WezTerm |
 
-Only the installer and configuration templates live in this repository.
-Application sessions, credentials, downloads, and installed tools stay on the
-machine where you run it.
+In the managed Yazi, **Enter opens an action chooser**:
 
-## RustifiedGit installation and updates
+- **Open** with the OS default application.
+- **RustifiedGit** in the selected directory, or the containing repository of a file.
+- **VS Code** with the selected files or directory.
+- **Notepad++** for files on Windows.
 
-RustifiedGit is built from [PlamDm/RustifiedGit](https://github.com/PlamDm/RustifiedGit)
-with `cargo build --release --locked`. The default source revision is:
+Use **Right** or **l** to navigate into directories within Yazi. Yazi's regular
+selection and multi-file opening remain available. The installed defaults live
+in `config/yazi/keymap.toml` and `config/yazi/yazi.toml`; edit them freely. Reruns
+preserve existing configuration files. With an older customized Yazi setup,
+merge the repository's templates to enable the new chooser.
 
-```text
-7a2be2ebfa45cfc5be78e788a820ee145953f36b
-```
+## Activate in an existing workflow
 
-The launcher is `playground/bin/rustifiedgit`, or `rustifiedgit.cmd` on Windows.
-It selects `playground/config/rustifiedgit` automatically:
+`activate.sh` works in Bash, Zsh and POSIX shells:
 
 ```sh
-rustifiedgit -p /path/to/repository
-```
-
-To install the latest `main` or a specific commit/tag:
-
-```sh
-bash install.sh --rustifiedgit-ref main
-```
-
-```powershell
-.\install.ps1 -RustifiedGitRef main
-```
-
-On macOS/Linux, Rustup installs a minimal toolchain under the setup root, and
-Cargo respects RustifiedGit's toolchain file. Windows uses MSYS2's packaged
-Rust compiler. Build caches are retained between runs. If a ref resolves to the
-already installed commit, its binary is reused. A failed build leaves the
-previous executable and recorded revision intact. Close RustifiedGit before
-replacing its executable on Windows.
-
-## Add tools to an existing terminal setup
-
-Use manual activation to install the tools without registering shell hooks or
-changing your persistent user/desktop PATH:
-
-```sh
-bash install.sh --no-activate
-source "$HOME/playground/config/shell/env-extra.sh"
-```
-
-The source file works in Bash and Zsh. It appends the managed commands to PATH,
-so existing commands keep priority and missing tools become available. Source
-it in your current terminal, or add that source line to your existing shell
-profile to load it in future sessions. Repeated sourcing does not duplicate
-the PATH entry.
-
-For Fish:
-
-```fish
-source "$HOME/playground/config/shell/env-extra.fish"
+source "$HOME/my-tools/activate.sh"
+# Equivalent:
+source "$HOME/my-tools/config/shell/env-extra.sh"
 ```
 
 For PowerShell:
 
 ```powershell
-.\install.ps1 -NoActivate
-. "$HOME\playground\config\shell\env-extra.ps1"
+. "D:\my-tools\activate.ps1"
 ```
 
-You can keep using your current terminal emulator, shell settings and tool
-configuration. The installer installs isolated copies (and reuses an existing
-Codex command in manual mode); the extra
-source files control which commands your session finds. To explicitly use a
-managed version when another version is installed, invoke its absolute launcher,
-such as `~/playground/bin/yazi`.
+For Fish:
 
-The regular `config/shell/env.sh` instead puts managed commands first. Manual
-activation does not remove hooks or PATH entries added by an earlier install;
-source the extra file after any existing setup hook to give existing tools
-priority in that session. Use your chosen root in these paths if you supplied
-`--root` or `-PlaygroundRoot`.
+```fish
+source "$HOME/my-tools/config/shell/env-extra.fish"
+```
 
-## Configuration and PATH
+Activation appends the setup's `bin` directory to the current session's PATH.
+Existing commands keep priority. Source it at the end of your profile if you
+want it in future terminals. Repeated sourcing does not duplicate the entry.
 
-Launchers keep configuration under `playground/config`:
+To use the managed configuration when a tool already exists on PATH, call its
+launcher explicitly, for example `~/my-tools/bin/yazi` or
+`D:\my-tools\bin\yazi.cmd`. To put all managed commands first in a shell, source
+`config/shell/env.sh` instead. Launchers apply the setup's configuration and cache
+paths only to their child processes; the activation file does not globally change
+your other tools' configuration directories.
 
-| Tool | Configuration |
-| --- | --- |
-| Bash | `bash/bashrc`; history under `state/bash` |
-| tmux | `tmux/tmux.conf`, with the managed Bash as its default shell |
-| Yazi | `yazi`, selected through `YAZI_CONFIG_HOME` |
-| RustifiedGit | `rustifiedgit`, selected with `--use-config-dir` |
-| WezTerm | `wezterm/wezterm.lua`; opens the managed Bash |
-| btop | `btop`; Windows uses a hard link to its required co-located config |
-| Codex CLI | `codex`, selected through its launcher's `CODEX_HOME` |
-
-Application configuration is created only when missing. Generated launchers
-and PATH hooks are refreshed on reruns. The installer registers `playground/bin`
-in Bash, Zsh, Fish, and the desktop user environment. Windows also receives a
-persistent user PATH entry. The system login shell is not changed.
-
-For a process that replaces PATH explicitly, source
-`playground/config/shell/env.sh` or invoke an absolute launcher path.
-Some Linux desktop sessions need a sign-out/sign-in to refresh their PATH.
-
-Yazi's optional PDF/video preview tools, extra fonts, and shell key bindings
-are not installed by this setup.
-
-## Codex CLI only
+For automatic shell and desktop user PATH registration, opt in:
 
 ```sh
-bash install.sh --only-codex
+bash install.sh --root "$HOME/my-tools" --activate
 ```
 
 ```powershell
-.\install.ps1 -OnlyCodex
+.\install.ps1 -PlaygroundRoot D:\my-tools -Activate
 ```
 
-This uses OpenAI's standalone installer with a scoped installation directory;
-Node.js is not required. On Windows, the base MSYS2 environment is also installed
-if missing. The managed Codex configuration is separate, so sign in there once:
+`--no-activate` / `-NoActivate` remain supported. Manual mode does not remove
+hooks from an earlier automatically activated installation.
+
+## Layout and isolation
+
+```text
+my-tools/
+├── activate.sh / activate.ps1    source in an existing terminal
+├── bin/                         launchers for tools and Yazi helpers
+├── install/
+│   ├── homebrew/                macOS/Linux packages and libraries
+│   ├── msys2/                   Windows packages, libraries and compiler
+│   ├── apps/                    macOS WezTerm application
+│   ├── wezterm/ / btop/          Windows portable applications
+│   ├── rust/ / rustup/           macOS/Linux compiler toolchain
+│   ├── rustifiedgit/             compiled Git client
+│   ├── codex/ / copilot/         standalone AI CLIs
+│   ├── vscode/ / notepad++/      portable editors (Notepad++ on Windows)
+│   ├── powershell/               Windows portable PowerShell 7
+│   └── fonts/                    private Nerd Font files
+├── config/                      editable managed configuration
+├── state/                       history, tmux socket, zoxide data, build revision
+├── cache/                       downloads, previews and build artifacts
+└── tmp/                         temporary files
+```
+
+VS Code's portable data directory points to `config/vscode`, including its
+extensions, user data and temporary files. Notepad++ uses a separate instance
+and `config/notepad++`. Copilot uses `COPILOT_HOME` and `COPILOT_CACHE_HOME` under
+the root, with automatic updates disabled. Codex uses its own `config/codex` and
+package payload. tmux uses a private socket, avoiding another setup's server.
+Managed Git uses `config/git/config` for its global configuration; configure
+your name and email through the managed Git launcher if needed.
+
+This is **directory isolation, not an OS security sandbox**. Programs still run
+with your user permissions and can access files you open or repositories you
+work on. OS services such as the browser, credential store and desktop may use
+their own storage. WezTerm also manages some runtime logs and font caches in its
+upstream per-user locations. OS prerequisites are shared. Shell activation is exportable;
+a single native tool installation is not a relocatable cross-OS bundle. Rerun the
+installer with the desired root on another machine rather than copying binaries
+between operating systems or moving an existing Homebrew prefix.
+
+The repository contains only installer code and templates. Do not publish an
+installed folder containing credentials or session history.
+
+## Updates and sign-in
+
+Rerun the installer with the same root to update packages and portable tools.
+Existing projects and customized configuration are preserved. RustifiedGit is
+built from [PlamDm/RustifiedGit](https://github.com/PlamDm/RustifiedGit) at the
+pinned revision `7a2be2ebfa45cfc5be78e788a820ee145953f36b`. To update it to `main`:
 
 ```sh
-codex login
+bash install.sh --root "$HOME/my-tools" --rustifiedgit-ref main
 ```
+
+```powershell
+.\install.ps1 -PlaygroundRoot D:\my-tools -RustifiedGitRef main
+```
+
+Builds use `cargo build --release --locked`. The binary is reused when the source
+commit is unchanged; a failed build retains the previous executable. Downloaded
+portable archives are verified against published SHA-256 hashes.
+
+The AI CLIs have separate sign-ins. Run the managed `codex login`, and launch
+managed `copilot` then use `/login`. Installing Copilot does not purchase a
+subscription or grant account access; your GitHub account needs Copilot access.
+To install only Codex, use `--only-codex` / `-OnlyCodex`.
 
 ## Checks
 
 ```sh
+# Tests require Python 3 and jq; fixture installs never contact the network.
 python3 tests/check.py
 bash install.sh --dry-run --platform macos
 bash install.sh --dry-run --platform linux
 bash install.sh --dry-run --platform windows
 ```
 
-The offline tests exercise dry runs without side effects, shell syntax, PATH
-registration, quoted launcher arguments, config routing, repeat runs, and
-RustifiedGit build caching/failure recovery using fixture tools. They do not
-install the full tool suite on your development machine. CI also parses and
-previews PowerShell, and builds the pinned RustifiedGit revision with native
-MSYS2 Rust on Windows.
+Tests cover previews, opt-in registration, activation priority, configuration
+routing, quoted arguments, repeat installs, preserved settings, verified portable
+archive extraction and failed downloads/builds. Windows CI also installs real
+portable applications, runs their command launchers, and builds and runs the
+pinned RustifiedGit `.exe` using native MSYS2 Rust.
 
 ## References
 
-- [RustifiedGit](https://github.com/PlamDm/RustifiedGit)
-- [Homebrew installation](https://docs.brew.sh/Installation)
-- [Rustup installation](https://rust-lang.github.io/rustup/installation/other.html)
-- [MSYS2 Rust package](https://packages.msys2.org/packages/mingw-w64-ucrt-x86_64-rust)
-- [WezTerm installation](https://wezterm.org/installation.html)
+- [Yazi dependencies](https://yazi-rs.github.io/docs/installation/)
+- [Yazi opener configuration](https://yazi-rs.github.io/docs/configuration/yazi/)
+- [GitHub Copilot CLI installation](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli)
+- [Copilot configuration and cache paths](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference)
+- [VS Code portable mode](https://code.visualstudio.com/docs/setup/portable)
+- [Notepad++ portable distribution](https://github.com/notepad-plus-plus/notepad-plus-plus/releases)
+- [Notepad++ settings directory](https://github.com/notepad-plus-plus/npp-usermanual/blob/master/content/docs/command-prompt.md)
+- [Homebrew installation prerequisites](https://docs.brew.sh/Installation)
 - [Codex installer variables](https://learn.chatgpt.com/docs/config-file/environment-variables)

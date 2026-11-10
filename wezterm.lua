@@ -2,6 +2,8 @@ local wezterm = require 'wezterm'
 local config = {}
 local root = wezterm.config_dir:gsub('\\', '/') .. '/../..'
 config.term = 'xterm-256color'
+config.font_dirs = { root .. '/install/fonts' }
+config.font = wezterm.font('JetBrainsMono Nerd Font')
 if wezterm.target_triple:find('windows') then
   config.default_prog = {
     root .. '/install/msys2/usr/bin/bash.exe',

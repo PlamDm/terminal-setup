@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """Offline checks. Full-flow checks use fixture executables, never real installers."""
 import os
+import hashlib
+import json
 from pathlib import Path
 import shlex
 import shutil
 import subprocess
 import tempfile
+import tarfile
+import zipfile
+import sys
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,7 +27,7 @@ class PlaygroundChecks(unittest.TestCase):
     def test_shell_syntax(self):
         for shell in {BASH, "/bin/bash"}:
             if Path(shell).is_file():
-                for script in ("install.sh", "lib/environment.sh", "lib/rustifiedgit.sh"):
+                for script in ("install.sh", "lib/environment.sh", "lib/rustifiedgit.sh", "lib/portable.sh", "lib/yazi.sh"):
                     subprocess.run([shell, "-n", str(ROOT / script)], check=True)
 
     def test_previews_never_call_installers_or_create_root(self):
@@ -41,7 +46,7 @@ class PlaygroundChecks(unittest.TestCase):
                     env=environment, capture_output=True, text=True,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
-                for name in ("Codex", "btop", "fzf", "/install", "/config", "/bin"):
+                for name in ("Codex", "btop", "fzf", "Copilot", "VS Code", "Nerd Font", "/install", "/config", "/bin"):
                     self.assertIn(name, result.stdout)
                 self.assertIn("PlamDm/RustifiedGit.git", result.stdout)
                 self.assertFalse(marker.exists())
@@ -64,6 +69,12 @@ class PlaygroundChecks(unittest.TestCase):
             self.assertIn("Leave profiles and persistent PATH unchanged", result.stdout)
             self.assertNotIn("Register " + str(target), result.stdout)
             self.assertFalse(target.exists())
+
+    def test_default_is_source_only_and_registration_is_explicit(self):
+        result = subprocess.check_output([BASH, str(ROOT / "install.sh"), "--dry-run"], text=True)
+        self.assertIn("Leave profiles and persistent PATH unchanged", result)
+        activated = subprocess.check_output([BASH, str(ROOT / "install.sh"), "--dry-run", "--activate"], text=True)
+        self.assertIn("Register ", activated)
 
     def test_invalid_arguments_fail(self):
         for arguments in (
@@ -123,6 +134,40 @@ pd_register_path
             script = 'die() { exit 9; }; PD_ROOT=$1; . "$2/lib/environment.sh"; pd_write_launcher codex /usr/bin/codex'
             result = subprocess.run([BASH, "-c", script, "check", directory, str(ROOT)])
             self.assertEqual(result.returncode, 9)
+
+    def test_ai_editor_and_yazi_launchers_isolate_data_and_preserve_arguments(self):
+        with tempfile.TemporaryDirectory(prefix="terminal-apps-") as directory:
+            playground = Path(directory) / "tool root's"
+            for name in ("copilot", "code", "yazi", "git"):
+                executable(playground / "install/fixture" / name,
+                    '#!' + sys.executable + '\nimport json,os,sys\nprint(json.dumps({"env":dict(os.environ),"args":sys.argv[1:]}))\n')
+            generate = '''
+set -eu
+PD_ROOT=$1
+PD_OS=macos
+mkdir -p "$PD_ROOT/bin"
+. "$2/lib/environment.sh"
+pd_write_environment
+for name in copilot code yazi git; do pd_write_launcher "$name" "$PD_ROOT/install/fixture/$name"; done
+'''
+            subprocess.run([BASH, "-c", generate, "check", str(playground), str(ROOT)], check=True)
+            argument = "file's name; $(must-not-run).txt"
+            for name in ("copilot", "code", "yazi", "git"):
+                actual = json.loads(subprocess.check_output([str(playground / "bin" / name), argument], text=True))
+                self.assertEqual(actual["args"][-1], argument)
+                for variable, relative in (("XDG_CONFIG_HOME", "config"), ("XDG_CACHE_HOME", "cache"),
+                    ("XDG_STATE_HOME", "state"), ("TMPDIR", "tmp"), ("GIT_CONFIG_GLOBAL", "config/git/config")):
+                    self.assertEqual(actual["env"][variable], str(playground / relative))
+                if name == "copilot":
+                    self.assertEqual(actual["env"]["COPILOT_HOME"], str(playground / "config/copilot"))
+                    self.assertEqual(actual["env"]["COPILOT_CACHE_HOME"], str(playground / "cache/copilot"))
+                    self.assertEqual(actual["env"]["COPILOT_AUTO_UPDATE"], "false")
+                if name == "code":
+                    self.assertEqual(actual["env"]["VSCODE_PORTABLE"], str(playground / "config/vscode"))
+                    self.assertEqual(actual["args"][:-1], ["--user-data-dir", str(playground / "config/vscode/user-data"),
+                        "--extensions-dir", str(playground / "config/vscode/extensions")])
+                if name == "yazi":
+                    self.assertEqual(actual["env"]["YAZI_CONFIG_HOME"], str(playground / "config/yazi"))
 
     def test_rustifiedgit_launcher_selects_its_config_and_preserves_arguments(self):
         with tempfile.TemporaryDirectory(prefix="terminal-launcher-") as directory:
@@ -288,7 +333,7 @@ prefix="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 root="$(CDPATH= cd -- "$prefix/../.." && pwd)"
 if [ "$1" = --prefix ]; then printf '%s\n' "$prefix"; exit 0; fi
 printf '%s\n' "$*" >> "$root/state/brew-calls"
-for name in bash tmux yazi ya git file btop fzf; do
+for name in bash tmux yazi ya git file btop fzf ffmpeg ffprobe 7zz pdftoppm pdftotext pdfinfo fd rg zoxide resvg magick; do
   printf '#!/bin/sh\nexit 0\n' > "$prefix/bin/$name"
   chmod +x "$prefix/bin/$name"
 done
@@ -300,17 +345,56 @@ chmod +x "$app/wezterm"
             executable(playground / "install/homebrew/bin/brew", fake_brew)
             executable(fixtures / "brew", "#!/bin/sh\nexit 91\n")
             executable(fixtures / "git", "#!/bin/sh\nexit 92\n")
-            executable(fixtures / "uname", "#!/bin/sh\nprintf 'Darwin\\n'\n")
-            executable(fixtures / "curl", """#!/bin/sh
-for value do destination="$value"; done
-cp "$PD_FIXTURE_CODEX_INSTALLER" "$destination"
-""")
+            executable(fixtures / "uname", '#!/bin/sh\nif [ "$1" = -m ]; then echo arm64; else echo Darwin; fi\n')
+            # Real archives and published hashes exercise extraction and integrity
+            # handling without network access or a desktop application install.
+            artifacts = base / "artifacts"
+            artifacts.mkdir()
+            copilot = artifacts / "copilot"
+            executable(copilot, '#!/bin/sh\nprintf "copilot fixture\\n"\n')
+            copilot_archive = artifacts / "copilot-darwin-arm64.tar.gz"
+            with tarfile.open(copilot_archive, "w:gz") as archive:
+                archive.add(copilot, arcname="copilot")
+            font = artifacts / "fixture.ttf"
+            font.write_text("fixture font")
+            font_archive = artifacts / "JetBrainsMono.tar.xz"
+            with tarfile.open(font_archive, "w:xz") as archive:
+                archive.add(font, arcname="fixture.ttf")
+            code = artifacts / "code"
+            executable(code, '#!/bin/sh\nprintf "code fixture\\n"\n')
+            code_archive = artifacts / "vscode.zip"
+            with zipfile.ZipFile(code_archive, "w") as archive:
+                archive.write(code, "Visual Studio Code.app/Contents/Resources/app/bin/code")
+            downloads = {}
+            for repo, asset in (("github/copilot-cli", copilot_archive), ("ryanoasis/nerd-fonts", font_archive)):
+                url = "https://fixture.invalid/" + asset.name
+                metadata = artifacts / (asset.name + ".json")
+                metadata.write_text(json.dumps({"assets": [{"name": asset.name, "browser_download_url": url,
+                    "digest": "sha256:" + hashlib.sha256(asset.read_bytes()).hexdigest()}]}))
+                downloads["https://api.github.com/repos/" + repo + "/releases/latest"] = str(metadata)
+                downloads[url] = str(asset)
+            vscode_metadata = artifacts / "vscode.json"
+            vscode_metadata.write_text(json.dumps({"version": "a" * 40, "url": "https://fixture.invalid/vscode.zip",
+                "sha256hash": hashlib.sha256(code_archive.read_bytes()).hexdigest()}))
+            downloads["https://update.code.visualstudio.com/api/update/darwin-arm64/stable/latest"] = str(vscode_metadata)
+            downloads["https://fixture.invalid/vscode.zip"] = str(code_archive)
+            downloads["https://chatgpt.com/codex/install.sh"] = str(base / "codex-installer.stub")
+            curl_source = '#!' + sys.executable + '\nimport sys,shutil\nroutes=' + repr(downloads) + '\n'
+            curl_source += 'url=next(a for a in sys.argv[1:] if a.startswith("https://"))\nshutil.copyfile(routes[url],sys.argv[-1])\n'
+            executable(fixtures / "curl", curl_source)
+            jq = shutil.which("jq")
+            self.assertIsNotNone(jq, "jq is required for the portable archive fixture test")
+            executable(playground / "install/homebrew/bin/jq", '#!/bin/sh\nexec ' + shlex.quote(jq) + ' "$@"\n')
             codex_stub = base / "codex-installer.stub"
             executable(codex_stub, r"""#!/bin/sh
 case ":$PATH:" in
   *":$CODEX_INSTALL_DIR:"*) ;;
   *) printf '# delegated installer PATH hook\n' >> "$PD_USER_HOME/.zshrc" ;;
 esac
+existing="$(command -v codex || true)"
+if [ -n "$existing" ] && [ "$existing" != "$CODEX_INSTALL_DIR/codex" ]; then
+  printf '# delegated conflict PATH hook\n' >> "$PD_USER_HOME/.zshrc"
+fi
 mkdir -p "$CODEX_INSTALL_DIR"
 printf '#!/bin/sh\nprintf "codex-cli fixture\\n"\n' > "$CODEX_INSTALL_DIR/codex"
 chmod +x "$CODEX_INSTALL_DIR/codex"
@@ -322,7 +406,7 @@ chmod +x "$CODEX_INSTALL_DIR/codex"
             )
             for _ in range(2):
                 result = subprocess.run(
-                    [BASH, str(ROOT / "install.sh"), "--root", str(playground)],
+                    [BASH, str(ROOT / "install.sh"), "--activate", "--root", str(playground)],
                     env=environment, capture_output=True, text=True,
                 )
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -330,13 +414,17 @@ chmod +x "$CODEX_INSTALL_DIR/codex"
             content = (user / ".zshrc").read_text()
             self.assertIn("# existing customization", content)
             self.assertEqual(content.count("# >>> pd-playground PATH >>>"), 1)
-            for name in ("bash", "tmux", "yazi", "rustifiedgit", "codex", "btop", "fzf", "wezterm"):
+            for name in ("bash", "tmux", "yazi", "rustifiedgit", "codex", "btop", "fzf", "wezterm", "copilot", "code", "rg", "fd", "7zz", "ffmpeg", "pdftoppm"):
                 self.assertTrue(os.access(playground / "bin" / name, os.X_OK), name)
             calls = (playground / "state/brew-calls").read_text()
             self.assertIn("install bash tmux yazi git file btop fzf", calls)
             self.assertIn("--appdir=" + str(playground / "install/apps"), calls)
             self.assertEqual((playground / "config/codex/packages").resolve(),
                              (playground / "install/codex/packages").resolve())
+            self.assertEqual((playground / ("install/vscode/" + "a" * 40 + "/code-portable-data")).resolve(), (playground / "config/vscode").resolve())
+            yazi_config = playground / "config/yazi/yazi.toml"
+            self.assertIn("rustifiedgit-file", yazi_config.read_text())
+            yazi_config.write_text(yazi_config.read_text() + "\n# keep my customization\n")
             # A PC with an existing terminal can install without any home hooks.
             manual_user = base / "manual-user"
             manual_user.mkdir()
@@ -357,17 +445,35 @@ chmod +x "$CODEX_INSTALL_DIR/codex"
             self.assertIn("env-extra.sh", result.stdout)
             for name in ("env-extra.sh", "env-extra.fish", "env-extra.ps1"):
                 self.assertTrue((playground / "config/shell" / name).is_file())
-            executable(fixtures / "codex", "#!/bin/sh\nexit 0\n")
+            self.assertIn("# keep my customization", yazi_config.read_text())
+            existing_bin = base / "existing-codex"
+            executable(existing_bin / "codex", "#!/usr/bin/env node\n// existing installation\n")
+            existing_codex_before = (existing_bin / "codex").read_bytes()
             result = subprocess.run(
                 [BASH, str(ROOT / "install.sh"), "--no-activate", "--root", str(playground)],
                 env=dict(environment, PD_USER_HOME=str(manual_user),
                          XDG_CONFIG_HOME=str(manual_user / ".config"),
-                         PD_FIXTURE_CODEX_INSTALLER=str(base / "must-not-be-downloaded")),
+                         PATH=str(existing_bin) + os.pathsep + environment["PATH"]),
                 capture_output=True, text=True,
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn("Keeping the existing Codex command", result.stdout)
+            self.assertEqual((existing_bin / "codex").read_bytes(), existing_codex_before)
             self.assertEqual(existing_profile.read_bytes(), before[".zshrc"])
+            # Fresh managed Codex coexists with an existing npm command, with no
+            # delegated profile hook and no modification of the existing CLI.
+            fresh_root = base / "fresh-root"
+            result = subprocess.run([BASH, str(ROOT / "install.sh"), "--only-codex", "--root", str(fresh_root)],
+                env=dict(environment, PD_USER_HOME=str(manual_user), PATH=str(existing_bin) + os.pathsep + environment["PATH"]),
+                capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue((fresh_root / "bin/codex").is_file())
+            self.assertEqual(existing_profile.read_bytes(), before[".zshrc"])
+            # A corrupt portable download must fail instead of installing it.
+            copilot_archive.write_bytes(b"corrupt archive")
+            result = subprocess.run([BASH, str(ROOT / "install.sh"), "--root", str(playground)],
+                                    env=environment, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("SHA-256 verification failed", result.stderr)
 
 
 if __name__ == "__main__":
