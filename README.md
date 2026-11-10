@@ -52,7 +52,9 @@ The default is `%USERPROFILE%\playground`.
 The default installer extracts MSYS2's official self-extracting base archive into `install/msys2`, with
 no setup registration or Start menu shortcuts. PowerShell searches conventional
 `msys64` folders on fixed drives, common Scoop locations, `MSYS2_ROOT`, and
-executables already on `PATH`. If it finds an existing MSYS2, it asks whether
+executables already on `PATH`. When reuse is selected, it also searches fixed
+drives recursively for an `msys64` directory if those checks find nothing.
+If it finds an existing MSYS2, it asks whether
 to reuse it. Answer `y` to use it without downloading another MSYS2;
 the installer adds the required packages to that installation. Answer `n` to
 keep the tools setup self-contained under the selected playground folder.

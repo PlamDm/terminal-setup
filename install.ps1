@@ -118,6 +118,7 @@ function Test-Msys2Installation {
     return $true
 }
 function Find-SystemMsys2 {
+    param([switch] $SearchFixedDrives)
     $candidates = @()
     if ($env:MSYS2_ROOT) { $candidates += $env:MSYS2_ROOT }
     if ($env:SystemDrive) { $candidates += (Join-Path $env:SystemDrive 'msys64') }
@@ -158,6 +159,18 @@ function Find-SystemMsys2 {
             return [IO.Path]::GetFullPath($candidate).TrimEnd('\', '/')
         }
     }
+    if ($SearchFixedDrives) {
+        Write-Host '[playground] Searching fixed drives for an MSYS2 installation...'
+        foreach ($drive in [IO.DriveInfo]::GetDrives()) {
+            if ($drive.DriveType -ne [IO.DriveType]::Fixed) { continue }
+            foreach ($match in Get-ChildItem -LiteralPath $drive.RootDirectory.FullName -Directory `
+                -Filter 'msys64' -Recurse -Force -ErrorAction SilentlyContinue) {
+                if (Test-Msys2Installation -Path $match.FullName) {
+                    return [IO.Path]::GetFullPath($match.FullName).TrimEnd('\', '/')
+                }
+            }
+        }
+    }
     return $null
 }
 function Select-Msys2Root {
@@ -168,15 +181,16 @@ function Select-Msys2Root {
         }
         return [IO.Path]::GetFullPath($Msys2Root).TrimEnd('\', '/')
     }
-    $detectedRoot = Find-SystemMsys2
+    $canPrompt = $Host.Name -eq 'ConsoleHost' -and $env:CI -notin @('true', '1')
+    $detectedRoot = Find-SystemMsys2 -SearchFixedDrives:($UseExistingMsys2 -or $canPrompt)
     if ($UseExistingMsys2) {
         if (-not $detectedRoot) {
-            throw 'No existing MSYS2 installation was found. Set -Msys2Root to its location.'
+            throw 'No existing MSYS2 installation was found on the fixed drives. Run without -UseExistingMsys2 to install a private copy.'
         }
         Write-Host "[playground] Reusing system MSYS2 at $detectedRoot."
         return $detectedRoot
     }
-    if ($detectedRoot -and $Host.Name -eq 'ConsoleHost' -and $env:CI -notin @('true', '1')) {
+    if ($detectedRoot -and $canPrompt) {
         $answer = Read-Host "Found MSYS2 at $detectedRoot. Reuse it? [y/N]"
         if ($answer -match '^(?i:y|yes)$') {
             Write-Host "[playground] Reusing system MSYS2 at $detectedRoot."
