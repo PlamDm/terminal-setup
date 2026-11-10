@@ -27,8 +27,48 @@ class PlaygroundChecks(unittest.TestCase):
     def test_shell_syntax(self):
         for shell in {BASH, "/bin/bash"}:
             if Path(shell).is_file():
-                for script in ("install.sh", "lib/environment.sh", "lib/rustifiedgit.sh", "lib/portable.sh", "lib/yazi.sh", "lib/msys2.sh"):
+                for script in ("install.sh", "lib/environment.sh", "lib/rustifiedgit.sh", "lib/portable.sh",
+                               "lib/yazi.sh", "lib/msys2.sh", "lib/interactive.sh"):
                     subprocess.run([shell, "-n", str(ROOT / script)], check=True)
+
+    def test_interactive_catalog_and_selected_msys2_packages(self):
+        catalog = {}
+        for line in (ROOT / "lib/interactive-tools.tsv").read_text().splitlines():
+            if not line or line.startswith("#"):
+                continue
+            tool, _label, platforms = line.split("\t")
+            catalog[tool] = set(platforms.split(","))
+        self.assertIn("notepadpp", catalog)
+        self.assertEqual(catalog["notepadpp"], {"windows"})
+        self.assertEqual(catalog["pwsh"], {"windows"})
+        self.assertEqual(catalog["yazi"], {"macos", "linux", "windows"})
+
+        with tempfile.TemporaryDirectory(prefix="pd-interactive-") as directory:
+            base = Path(directory)
+            msys = base / "msys2"
+            pacman = msys / "usr" / "bin" / "pacman.exe"
+            log = base / "pacman-args"
+            pacman.parent.mkdir(parents=True)
+            executable(pacman, "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + shlex.quote(str(log)) + "\n")
+            script = (
+                'set -euo pipefail\n'
+                'PD_MSYS2_ROOT="$1"\n'
+                'PD_SELECTION_MODE=explicit\n'
+                'PD_SELECTED_TOOLS=yazi,wezterm\n'
+                'PD_MSYS2_PRESERVE_INSTALLED=0\n'
+                'PD_MSYS2_READ_ONLY=0\n'
+                '. "$2/lib/msys2.sh"\n'
+                'pd_install_msys2_packages\n'
+            )
+            subprocess.run([BASH, "-c", script, "fixture", str(msys), str(ROOT)], check=True)
+            packages = log.read_text().splitlines()
+            self.assertEqual(packages[:3], ["-S", "--needed", "--noconfirm"])
+            self.assertIn("bash", packages)
+            self.assertIn("git", packages)
+            self.assertIn("mingw-w64-ucrt-x86_64-rust", packages)
+            self.assertIn("mingw-w64-ucrt-x86_64-ffmpeg", packages)
+            self.assertNotIn("tmux", packages)
+            self.assertNotIn("mingw-w64-ucrt-x86_64-fzf", packages)
 
     def test_previews_never_call_installers_or_create_root(self):
         with tempfile.TemporaryDirectory(prefix="pd-check-") as directory:
@@ -41,7 +81,7 @@ class PlaygroundChecks(unittest.TestCase):
             environment = dict(os.environ, PATH=str(guards) + os.pathsep + os.environ["PATH"])
             for platform in ("macos", "linux", "windows"):
                 result = subprocess.run(
-                    [BASH, str(ROOT / "install.sh"), "--dry-run", "--platform", platform,
+                    [BASH, str(ROOT / "install.sh"), "--dry-run", "--interactive", "--platform", platform,
                      "--root", str(base / "must-not-exist")],
                     env=environment, capture_output=True, text=True,
                 )

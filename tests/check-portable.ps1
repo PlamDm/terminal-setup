@@ -11,6 +11,9 @@ $configDirectory = Join-Path $PlaygroundRoot 'config'
 $cacheDirectory = Join-Path $PlaygroundRoot 'cache'
 $msysRoot = Join-Path $installRoot 'msys2'
 $headers = @{ 'User-Agent' = 'terminal-setup-test'; 'Accept' = 'application/vnd.github+json' }
+$Interactive = $false
+$OnlyCodex = $false
+$selectedTools = @()
 if ($env:GITHUB_TOKEN) { $headers.Authorization = 'Bearer ' + $env:GITHUB_TOKEN }
 $previousUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 $savedEnvironment = @{}
@@ -22,7 +25,8 @@ try {
     $ast = [Management.Automation.Language.Parser]::ParseFile(
         (Join-Path $PSScriptRoot '..\install.ps1'), [ref]$tokens, [ref]$parseErrors)
     if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
-    foreach ($name in @('Invoke-Checked', 'Get-GitHubRelease', 'Save-Asset', 'Find-InstalledTool', 'Install-ZipTool', 'Write-WindowsLaunchers', 'Configure-Btop', 'Install-Msys2')) {
+    foreach ($name in @('Invoke-Checked', 'Get-GitHubRelease', 'Save-Asset', 'Find-InstalledTool', 'Install-ZipTool',
+        'Write-WindowsLaunchers', 'Configure-Btop', 'Install-Msys2', 'Test-PDSelected')) {
         $function = $ast.Find({ param($node)
             $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
         }, $true)

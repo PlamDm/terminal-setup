@@ -2,6 +2,7 @@
 [CmdletBinding()]
 param(
     [switch] $DryRun,
+    [switch] $Interactive,
     [switch] $OnlyCodex,
     [switch] $NoActivate,
     [switch] $Activate,
@@ -26,11 +27,28 @@ $configDirectory = Join-Path $PlaygroundRoot 'config'
 $cacheDirectory = Join-Path $PlaygroundRoot 'cache'
 $msysRoot = Join-Path $installRoot 'msys2'
 $headers = @{ 'User-Agent' = 'terminal-setup'; 'Accept' = 'application/vnd.github+json' }
+$selectedTools = @()
+. (Join-Path $PSScriptRoot 'lib\interactive.ps1')
 
 function Invoke-Checked {
     param([string] $Program, [string[]] $Arguments)
     & $Program @Arguments
     if ($LASTEXITCODE -ne 0) { throw "$Program failed with exit code $LASTEXITCODE." }
+}
+function Test-PDSelected {
+    param([string] $Id)
+    if ($OnlyCodex) { return $Id -eq 'codex' }
+    if (-not $Interactive) { return $true }
+    if ($Id -eq 'pwsh' -and $selectedTools -contains 'copilot') { return $true }
+    return $selectedTools -contains $Id
+}
+function Resolve-PDSelectedTools {
+    param([string[]] $SelectedTools)
+    $resolved = @($SelectedTools)
+    if ($resolved -contains 'copilot' -and $resolved -notcontains 'pwsh') {
+        $resolved += 'pwsh'
+    }
+    return $resolved
 }
 function Get-GitHubRelease {
     param([string] $Repo, [switch] $StableMsys2)
@@ -524,6 +542,22 @@ if ($DryRun) {
 if ($env:OS -ne 'Windows_NT' -or -not [Environment]::Is64BitOperatingSystem) {
     throw 'This bootstrap requires 64-bit Windows. On macOS/Linux use install.sh.'
 }
+if ($Interactive) {
+    $selectedRoot = Show-PDInstallDirectoryPicker -InitialPath $PlaygroundRoot
+    if (-not $selectedRoot) {
+        Write-Host '[playground] Installation cancelled.'
+        exit 0
+    }
+    if (-not (Test-PDInstallPath -Path $selectedRoot)) {
+        throw 'Choose a playground path containing only letters, digits, underscore, hyphen or slash, with no spaces.'
+    }
+    $PlaygroundRoot = [IO.Path]::GetFullPath($selectedRoot).TrimEnd('\', '/')
+    $installRoot = Join-Path $PlaygroundRoot 'install'
+    $binDirectory = Join-Path $PlaygroundRoot 'bin'
+    $configDirectory = Join-Path $PlaygroundRoot 'config'
+    $cacheDirectory = Join-Path $PlaygroundRoot 'cache'
+    $msysRoot = Join-Path $installRoot 'msys2'
+}
 $msys2 = Select-Msys2Root -DefaultRoot $msysRoot
 $msysRoot = $msys2.Root
 if ($Msys2ReadOnly -and -not $msys2.PreserveInstalled) {
@@ -537,13 +571,31 @@ if ($msys2.PreserveInstalled) {
         throw 'PlaygroundRoot must be outside the existing MSYS2 installation.'
     }
 }
+if ($Interactive -and $msys2.PreserveInstalled -and -not $Msys2ReadOnly -and -not $OnlyCodex) {
+    $answer = Read-Host 'Use existing MSYS2 packages as-is and skip unavailable tools? [Y/n]'
+    if ($answer -notmatch '^(?i:n|no)$') { $Msys2ReadOnly = $true }
+}
+if ($Interactive -and -not $OnlyCodex) {
+    $selection = Show-PDToolSelectionMenu -PlaygroundRoot $PlaygroundRoot -MsysRoot $msysRoot -Msys2ReadOnly $Msys2ReadOnly
+    if ($null -eq $selection) {
+        Write-Host '[playground] Installation cancelled.'
+        exit 0
+    }
+    $selectedTools = @(Resolve-PDSelectedTools -SelectedTools $selection)
+    if ($selectedTools.Count -eq 0) {
+        Write-Host '[playground] No tools selected; nothing was installed.'
+        exit 0
+    }
+} elseif ($Interactive) {
+    $selectedTools = @('codex')
+}
 foreach ($directory in @($installRoot, $binDirectory, $configDirectory, $cacheDirectory, (Join-Path $PlaygroundRoot 'tmp'))) {
     [IO.Directory]::CreateDirectory($directory) | Out-Null
 }
 [IO.Directory]::CreateDirectory((Join-Path $configDirectory 'path')) | Out-Null
 [IO.File]::WriteAllText((Join-Path $configDirectory 'path\msys2-root.txt'), $msysRoot + [Environment]::NewLine)
 Install-Msys2
-$environmentNames = @('MSYSTEM', 'CHERE_INVOKING', 'MSYS2_PATH_TYPE', 'PD_MSYS2_READY', 'PD_MSYS2_PRESERVE_INSTALLED', 'PD_MSYS2_READ_ONLY', 'PD_WEZTERM_EXE', 'PD_BTOP_EXE', 'PD_COPILOT_EXE', 'PD_CODE_EXE', 'PD_NOTEPAD_EXE', 'PD_PWSH_EXE', 'TEMP', 'TMP', 'TMPDIR', 'HOME', 'PD_USER_HOME', 'BASH_ENV', 'PATH')
+$environmentNames = @('MSYSTEM', 'CHERE_INVOKING', 'MSYS2_PATH_TYPE', 'PD_MSYS2_READY', 'PD_MSYS2_PRESERVE_INSTALLED', 'PD_MSYS2_READ_ONLY', 'PD_SELECTION_MODE', 'PD_SELECTED_TOOLS', 'PD_WEZTERM_EXE', 'PD_BTOP_EXE', 'PD_COPILOT_EXE', 'PD_CODE_EXE', 'PD_NOTEPAD_EXE', 'PD_PWSH_EXE', 'TEMP', 'TMP', 'TMPDIR', 'HOME', 'PD_USER_HOME', 'BASH_ENV', 'PATH')
 $savedEnvironment = @{}
 foreach ($name in $environmentNames) { $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 try {
@@ -551,18 +603,26 @@ try {
     $env:CHERE_INVOKING = '1'
     $env:MSYS2_PATH_TYPE = 'inherit'
     $env:PD_MSYS2_READY = '1'
+    $env:PD_SELECTION_MODE = if ($Interactive) { 'explicit' } else { 'all' }
+    $env:PD_SELECTED_TOOLS = if ($Interactive) { $selectedTools -join ',' } else { '' }
     $env:TEMP = Join-Path $PlaygroundRoot 'tmp'
     $env:TMP = $env:TEMP
     $bash = Join-Path $msysRoot 'usr\bin\bash.exe'
     Initialize-Msys2 -PreserveInstalled $msys2.PreserveInstalled -ReadOnly $Msys2ReadOnly
-    if (-not $OnlyCodex) {
+    if (Test-PDSelected 'wezterm') {
         $env:PD_WEZTERM_EXE = Install-ZipTool -Repo 'wezterm/wezterm' -Pattern '^WezTerm-windows-.*\.zip$' -Name 'wezterm' -Executable 'wezterm.exe'
+    }
+    if (Test-PDSelected 'btop') {
         $env:PD_BTOP_EXE = Install-ZipTool -Repo 'aristocratos/btop4win' -Pattern '^btop4win-x64\.zip$' -Name 'btop' -Executable 'btop4win.exe'
         Configure-Btop -Executable $env:PD_BTOP_EXE
+    }
+    if ((Test-PDSelected 'copilot') -or (Test-PDSelected 'pwsh') -or
+        (Test-PDSelected 'notepadpp') -or (Test-PDSelected 'vscode') -or
+        (Test-PDSelected 'wezterm')) {
         . (Join-Path $PSScriptRoot 'lib\portable.ps1')
         Install-PortableWindowsTools
     }
-    Install-Codex
+    if (Test-PDSelected 'codex') { Install-Codex }
     $unixRoot = ConvertTo-Msys2Path -Path $PlaygroundRoot
     $unixMsysRoot = ConvertTo-Msys2Path -Path $msysRoot
     $unixScript = ConvertTo-Msys2Path -Path (Join-Path $PSScriptRoot 'install.sh')
@@ -572,7 +632,7 @@ try {
     if ($Msys2ReadOnly) { $arguments += '--msys2-read-only' }
     if ($NoActivate) { $arguments += '--no-activate' } else { $arguments += '--activate' }
     Invoke-Checked -Program $bash -Arguments $arguments
-    Update-WezTermMsys2Config
+    if (Test-PDSelected 'wezterm') { Update-WezTermMsys2Config }
     Write-WindowsLaunchers
 } finally {
     foreach ($name in $environmentNames) {

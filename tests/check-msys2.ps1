@@ -12,7 +12,7 @@ $PlaygroundRoot = Join-Path $root 'playground'
 $helper = Join-Path $repository 'lib\msys2.sh'
 $OnlyCodex = $false
 $names = @('PD_MSYS2_PRESERVE_INSTALLED', 'PD_MSYS2_READ_ONLY', 'PATH', 'BASH_ENV', 'HOME', 'PD_USER_HOME', 'TMPDIR',
-    'PD_MSYS2_READY', 'PD_WEZTERM_EXE', 'PD_BTOP_EXE', 'PD_COPILOT_EXE', 'PD_CODE_EXE', 'PD_NOTEPAD_EXE',
+    'PD_MSYS2_READY', 'PD_SELECTION_MODE', 'PD_SELECTED_TOOLS', 'PD_WEZTERM_EXE', 'PD_BTOP_EXE', 'PD_COPILOT_EXE', 'PD_CODE_EXE', 'PD_NOTEPAD_EXE',
     'PD_PWSH_EXE', 'PD_OS', 'PD_MSYS_FIXTURE_LOG', 'PD_MSYS_FIXTURE_PACKAGES',
     'PD_MSYS_FIXTURE_QUERY_FAIL', 'PD_MSYS_FIXTURE_CHANGE_EXISTING')
 $saved = @{}
@@ -114,6 +114,8 @@ public class Msys2Fixture {
     $env:PD_MSYS_FIXTURE_PACKAGES = $packages -join "`n"
     $env:PD_MSYS_FIXTURE_QUERY_FAIL = '0'
     $env:PD_MSYS_FIXTURE_CHANGE_EXISTING = '0'
+    $env:PD_SELECTION_MODE = 'all'
+    $env:PD_SELECTED_TOOLS = ''
     $ast = [Management.Automation.Language.Parser]::ParseFile(
         (Join-Path $repository 'install.ps1'), [ref]$null, [ref]$null)
     foreach ($name in @('Test-Msys2Installation', 'Find-Msys2UnderPath', 'Select-Msys2Root', 'ConvertTo-Msys2Path', 'Initialize-Msys2')) {
@@ -161,6 +163,22 @@ public class Msys2Fixture {
     Assert ($env:PD_MSYS2_READ_ONLY -eq '1') 'Read-only MSYS2 mode was not passed to Bash.'
     Assert ([IO.File]::ReadAllText($env:PD_MSYS_FIXTURE_LOG) -eq '') 'Read-only MSYS2 setup queried or modified packages.'
     Assert ((Get-Msys2Snapshot) -ceq $before) 'Read-only MSYS2 setup changed existing files.'
+
+    $env:PD_SELECTION_MODE = 'explicit'
+    $env:PD_SELECTED_TOOLS = 'yazi,wezterm'
+    $env:PD_MSYS_FIXTURE_PACKAGES = 'bash'
+    [IO.File]::WriteAllText($env:PD_MSYS_FIXTURE_LOG, '')
+    Initialize-Msys2 -PreserveInstalled $true
+    $selectedPackages = [IO.File]::ReadAllText((Join-Path $msysRoot 'usr\bin\installed'))
+    Assert ($selectedPackages.Contains('git') -and $selectedPackages.Contains('mingw-w64-ucrt-x86_64-rust') -and
+        $selectedPackages.Contains('mingw-w64-ucrt-x86_64-ffmpeg')) 'Selected Yazi dependencies were not installed.'
+    Assert (-not $selectedPackages.Contains(' tmux') -and
+        -not $selectedPackages.Contains('mingw-w64-ucrt-x86_64-fzf')) 'Unselected MSYS2 tools were requested.'
+    Remove-Item -LiteralPath (Join-Path $msysRoot 'usr\bin\installed')
+    Assert ((Get-Msys2Snapshot) -ceq $before) 'Selected-package preflight changed existing MSYS2 files.'
+    $env:PD_SELECTION_MODE = 'all'
+    $env:PD_SELECTED_TOOLS = ''
+    $env:PD_MSYS_FIXTURE_PACKAGES = $packages -join "`n"
 
     foreach ($failure in @('dependency-change', 'database')) {
         $env:PD_MSYS_FIXTURE_PACKAGES = ($packages | Where-Object { $_ -ne 'tmux' }) -join "`n"

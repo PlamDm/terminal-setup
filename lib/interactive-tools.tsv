@@ -1,0 +1,14 @@
+# id	label	platforms
+bash	Bash	macos,linux,windows
+git	Git	macos,linux,windows
+tmux	tmux	macos,linux,windows
+fzf	fzf	macos,linux,windows
+yazi	Yazi + preview helpers	macos,linux,windows
+rustifiedgit	RustifiedGit	macos,linux,windows
+wezterm	WezTerm	macos,linux,windows
+btop	btop	macos,linux,windows
+codex	Codex CLI	macos,linux,windows
+copilot	GitHub Copilot CLI	macos,linux,windows
+vscode	VS Code	macos,linux,windows
+notepadpp	Notepad++	windows
+pwsh	PowerShell 7	windows

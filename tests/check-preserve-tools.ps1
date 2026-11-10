@@ -7,6 +7,9 @@ $PlaygroundRoot = $root
 $installRoot = Join-Path $root 'install'
 $configDirectory = Join-Path $root 'config'
 $cacheDirectory = Join-Path $root 'cache'
+$Interactive = $false
+$OnlyCodex = $false
+$selectedTools = @()
 $names = @('PD_COPILOT_EXE', 'PD_PWSH_EXE', 'PD_NOTEPAD_EXE', 'PD_CODE_EXE', 'PATH')
 $saved = @{}
 foreach ($name in $names) { $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
@@ -36,7 +39,7 @@ try {
     [IO.File]::WriteAllText($manifest, "copilot`t$activeCopilot`n")
     $ast = [Management.Automation.Language.Parser]::ParseFile(
         (Join-Path $repository 'install.ps1'), [ref]$null, [ref]$null)
-    foreach ($name in @('Find-InstalledTool', 'Install-ZipTool', 'Install-Codex', 'Save-Asset')) {
+    foreach ($name in @('Find-InstalledTool', 'Install-ZipTool', 'Install-Codex', 'Save-Asset', 'Test-PDSelected')) {
         $definition = $ast.Find({ param($node)
             $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
         }, $true)

@@ -8,6 +8,30 @@ user-selected folder. No administrator installation is performed.
 By default, installation leaves your shell profiles and persistent PATH alone.
 Source one file to add the tools to an existing terminal.
 
+## Interactive installer
+
+Run the entry point with one option to choose a destination and select tools:
+
+```sh
+bash install.sh --interactive
+```
+
+```powershell
+.\install.ps1 -Interactive
+```
+
+Use the arrow keys and Enter to navigate the directory browser and select the
+current folder. In the tool list, Space toggles `[x]` selections and Enter
+continues. The status columns distinguish tools managed under the selected
+folder from tools available elsewhere; missing tools are selected by default,
+except for packages unavailable in read-only MSYS2 mode.
+Yazi includes its preview helpers, WezTerm includes its private font, and
+selecting Copilot on Windows also installs its PowerShell 7 dependency. Windows
+MSYS2 Bash is shown as a required runtime. When reusing an existing MSYS2, the
+interactive flow defaults to read-only and skips tools whose packages are
+missing. Answer `n` to try installing only missing packages with the existing
+no-upgrades/no-removals protection.
+
 ## macOS and Linux
 
 ```sh

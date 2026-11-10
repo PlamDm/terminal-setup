@@ -9,16 +9,29 @@ PD_REF="7a2be2ebfa45cfc5be78e788a820ee145953f36b"
 PD_DRY_RUN=0
 PD_ONLY_CODEX=0
 PD_ACTIVATE=0
+PD_INTERACTIVE=0
 PD_USE_EXISTING_MSYS2=0
 PD_MSYS2_READ_ONLY=0
 PD_MSYS2_ROOT_ARG=""
 PD_MSYS2_SEARCH_PATH_ARG=""
 PD_PREVIEW_OS=""
 PD_TEMP=""
+PD_SELECTION_MODE="${PD_SELECTION_MODE:-all}"
+PD_SELECTED_TOOLS="${PD_SELECTED_TOOLS:-}"
 
 log() { printf '[playground] %s\n' "$*"; }
 die() { printf '[playground] ERROR: %s\n' "$*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
+pd_selected() {
+  local pd_id="$1"
+  if [ "$PD_ONLY_CODEX" -eq 1 ]; then
+    [ "$pd_id" = codex ]
+    return
+  fi
+  [ "$PD_SELECTION_MODE" = explicit ] || return 0
+  case ",$PD_SELECTED_TOOLS," in *,"$pd_id",*) return 0 ;; esac
+  return 1
+}
 usage() {
   cat <<'EOF'
 Usage: bash install.sh [options]
@@ -27,6 +40,7 @@ Install terminal tools, Yazi helpers, Copilot CLI, VS Code and portable editors.
 Default layout: ~/playground/{install,bin,config,state,cache,tmp}.
 By default, leaves profiles and persistent PATH unchanged. Source env-extra.sh.
 
+  --interactive         Choose install folder and tools in an interactive menu.
   --dry-run            Preview without downloads or filesystem changes.
   --only-codex         Install only the managed Codex CLI.
   --no-activate        Install without changing profiles or persistent PATH.
@@ -46,6 +60,7 @@ EOF
 }
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --interactive) PD_INTERACTIVE=1; shift ;;
     --dry-run) PD_DRY_RUN=1; shift ;;
     --only-codex) PD_ONLY_CODEX=1; shift ;;
     --no-activate) PD_ACTIVATE=0; shift ;;
@@ -122,10 +137,11 @@ if [ "$PD_DRY_RUN" -eq 1 ]; then
   exit 0
 fi
 
-if [ "$PD_OS" = windows ] && [ "${PD_MSYS2_READY:-}" != 1 ]; then
+if [ "$PD_OS" = windows ] && { [ "${PD_MSYS2_READY:-}" != 1 ] || [ "$PD_INTERACTIVE" -eq 1 ]; }; then
   have powershell.exe && have cygpath || die "Run install.ps1 from Windows PowerShell."
   pd_windows_args=()
   if [ "$PD_ONLY_CODEX" -eq 1 ]; then pd_windows_args+=(-OnlyCodex); fi
+  if [ "$PD_INTERACTIVE" -eq 1 ]; then pd_windows_args+=(-Interactive); fi
   if [ "$PD_ACTIVATE" -eq 1 ]; then pd_windows_args+=(-Activate); else pd_windows_args+=(-NoActivate); fi
   if [ "$PD_USE_EXISTING_MSYS2" -eq 1 ]; then pd_windows_args+=(-UseExistingMsys2); fi
   if [ "$PD_MSYS2_READ_ONLY" -eq 1 ]; then pd_windows_args+=(-Msys2ReadOnly); fi
@@ -138,6 +154,29 @@ if [ "$PD_OS" = windows ] && [ "${PD_MSYS2_READY:-}" != 1 ]; then
   exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File \
     "$(cygpath -w "$PD_DIR/install.ps1")" -PlaygroundRoot "$(cygpath -w "$PD_ROOT")" \
     -RustifiedGitRef "$PD_REF" "${pd_windows_args[@]}"
+fi
+
+if [ "$PD_INTERACTIVE" -eq 1 ]; then
+  . "$PD_DIR/lib/interactive.sh"
+  trap 'pd_tui_restore 2>/dev/null || true' EXIT
+  trap 'pd_tui_restore 2>/dev/null || true; exit 130' INT
+  trap 'pd_tui_restore 2>/dev/null || true; exit 143' TERM
+  PD_INSTALL="$PD_ROOT/install"
+  PD_BIN="$PD_ROOT/bin"
+  PD_BREW="$PD_INSTALL/homebrew"
+  if [ "$PD_SELECTION_MODE" != explicit ]; then
+    pd_choose_install_directory "$PD_ROOT" || exit 0
+    case "$PD_ROOT" in /*) ;; *) die "The selected install folder must be an absolute path." ;; esac
+    case "$PD_ROOT" in /|"$HOME"|*:*|*$'\n'*|*$'\r'*) die "Choose a dedicated playground directory." ;; esac
+    PD_INSTALL="$PD_ROOT/install"
+    PD_BIN="$PD_ROOT/bin"
+    PD_BREW="$PD_INSTALL/homebrew"
+    pd_show_tool_menu || exit 0
+  fi
+  if [ -z "$PD_SELECTED_TOOLS" ] && [ "$PD_SELECTION_MODE" = explicit ]; then
+    log "No tools selected; nothing was installed."
+    exit 0
+  fi
 fi
 
 [ "${EUID:-$(id -u)}" -ne 0 ] || die "Run from your normal user account."
@@ -159,10 +198,13 @@ fi
 mkdir -p "$PD_INSTALL" "$PD_BIN" "$PD_ROOT/config" "$PD_ROOT/state" "$PD_ROOT/cache" "$PD_ROOT/tmp"
 export TMPDIR="$PD_ROOT/tmp"
 PD_TEMP="$(mktemp -d "$PD_ROOT/tmp/install.XXXXXX")"
-cleanup() { if [ -n "$PD_TEMP" ] && [ -d "$PD_TEMP" ]; then rm -rf -- "$PD_TEMP"; fi; }
+cleanup() {
+  if type pd_tui_restore >/dev/null 2>&1; then pd_tui_restore 2>/dev/null || true; fi
+  if [ -n "$PD_TEMP" ] && [ -d "$PD_TEMP" ]; then rm -rf -- "$PD_TEMP"; fi
+}
 trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
+trap 'pd_tui_restore 2>/dev/null || true; exit 130' INT
+trap 'pd_tui_restore 2>/dev/null || true; exit 143' TERM
 trap 'printf "[playground] Failed at line %s. Fix the reported error and rerun.\n" "$LINENO" >&2' ERR
 . "$PD_DIR/lib/environment.sh"
 . "$PD_DIR/lib/rustifiedgit.sh"
@@ -178,24 +220,55 @@ pd_brew() {
     HOMEBREW_TEMP="$PD_ROOT/tmp/homebrew" HOMEBREW_NO_ANALYTICS=1 \
     "$PD_BREW/bin/brew" "$@"
 }
+pd_wants_homebrew() {
+  local pd_id
+  for pd_id in bash git tmux yazi btop fzf wezterm copilot vscode; do
+    pd_selected "$pd_id" && return 0
+  done
+  return 1
+}
 install_unix_tools() {
+  local pd_brew_packages=()
   have git && have curl && have tar || die "Bootstrap requires existing git, curl and tar."
+  if [ "$PD_SELECTION_MODE" != explicit ]; then
+    pd_brew_packages=(bash tmux yazi git file btop fzf ffmpeg sevenzip jq poppler fd ripgrep zoxide resvg imagemagick)
+    if [ "$PD_OS" = linux ]; then pd_brew_packages+=(xclip wl-clipboard glib); fi
+  else
+    pd_selected bash && pd_brew_packages+=(bash)
+    pd_selected git && pd_brew_packages+=(git)
+    pd_selected tmux && pd_brew_packages+=(tmux)
+    pd_selected fzf && pd_brew_packages+=(fzf)
+    pd_selected btop && pd_brew_packages+=(btop)
+    if pd_selected yazi; then
+      pd_brew_packages+=(yazi file ffmpeg sevenzip jq poppler fd ripgrep zoxide resvg imagemagick)
+      if [ "$PD_OS" = linux ]; then pd_brew_packages+=(xclip wl-clipboard glib); fi
+    fi
+    if pd_selected wezterm || pd_selected copilot || pd_selected vscode; then
+      pd_brew_packages+=(jq)
+    fi
+  fi
+  PD_TOOL_BIN="$PD_BREW/bin"
+  PD_WEZTERM=""
+  [ "${#pd_brew_packages[@]}" -ne 0 ] || pd_selected wezterm || return 0
   mkdir -p "$PD_ROOT/tmp/homebrew"
   if [ ! -x "$PD_BREW/bin/brew" ]; then
     log "Creating isolated Homebrew in $PD_BREW (existing system Homebrew is not reused)."
     git clone --depth 1 https://github.com/Homebrew/brew.git "$PD_BREW"
   fi
   [ "$(pd_brew --prefix)" = "$PD_BREW" ] || die "Homebrew resolved outside playground."
-  log "Installing tools into the playground Homebrew prefix."
-  pd_brew install bash tmux yazi git file btop fzf ffmpeg sevenzip jq poppler fd ripgrep zoxide resvg imagemagick
-  if [ "$PD_OS" = linux ]; then pd_brew install xclip wl-clipboard glib; fi
-  if [ "$PD_OS" = macos ]; then
-    mkdir -p "$PD_INSTALL/apps"
-    pd_brew install --cask --appdir="$PD_INSTALL/apps" wezterm
-    PD_WEZTERM="$PD_INSTALL/apps/WezTerm.app/Contents/MacOS/wezterm"
-  else
-    pd_brew install wezterm/wezterm-linuxbrew/wezterm
-    PD_WEZTERM="$PD_BREW/bin/wezterm"
+  if [ "${#pd_brew_packages[@]}" -ne 0 ]; then
+    log "Installing selected tools and bundled dependencies into the playground Homebrew prefix."
+    pd_brew install "${pd_brew_packages[@]}"
+  fi
+  if pd_selected wezterm; then
+    if [ "$PD_OS" = macos ]; then
+      mkdir -p "$PD_INSTALL/apps"
+      pd_brew install --cask --appdir="$PD_INSTALL/apps" wezterm
+      PD_WEZTERM="$PD_INSTALL/apps/WezTerm.app/Contents/MacOS/wezterm"
+    else
+      pd_brew install wezterm/wezterm-linuxbrew/wezterm
+      PD_WEZTERM="$PD_BREW/bin/wezterm"
+    fi
   fi
   PD_TOOL_BIN="$PD_BREW/bin"
   export PATH="$PD_TOOL_BIN:$PATH"
@@ -209,13 +282,32 @@ install_windows_tools() {
     pd_install_msys2_packages
   fi
   export PATH="/ucrt64/bin:/usr/bin:$PATH"
-  PD_WEZTERM="$(cygpath -u -U "$PD_WEZTERM_EXE")"
-  PD_BTOP="$(cygpath -u -U "$PD_BTOP_EXE")"
   PD_TOOL_BIN="${PD_MSYS2_ROOT%/}/ucrt64/bin"
-  PD_COPILOT="$(cygpath -u -U "$PD_COPILOT_EXE")"
-  PD_CODE="$(cygpath -u -U "$PD_CODE_EXE")"
-  PD_NOTEPAD="$(cygpath -u -U "$PD_NOTEPAD_EXE")"
-  PD_PWSH="$(cygpath -u -U "$PD_PWSH_EXE")"
+  PD_WEZTERM=""; PD_BTOP=""; PD_COPILOT=""; PD_CODE=""; PD_NOTEPAD=""; PD_PWSH=""
+  if pd_selected wezterm; then
+    [ -n "${PD_WEZTERM_EXE:-}" ] || die "WezTerm was selected but its executable path was not provided."
+    PD_WEZTERM="$(cygpath -u -U "$PD_WEZTERM_EXE")"
+  fi
+  if pd_selected btop; then
+    [ -n "${PD_BTOP_EXE:-}" ] || die "btop was selected but its executable path was not provided."
+    PD_BTOP="$(cygpath -u -U "$PD_BTOP_EXE")"
+  fi
+  if pd_selected copilot; then
+    [ -n "${PD_COPILOT_EXE:-}" ] || die "Copilot CLI was selected but its executable path was not provided."
+    PD_COPILOT="$(cygpath -u -U "$PD_COPILOT_EXE")"
+  fi
+  if pd_selected vscode; then
+    [ -n "${PD_CODE_EXE:-}" ] || die "VS Code was selected but its executable path was not provided."
+    PD_CODE="$(cygpath -u -U "$PD_CODE_EXE")"
+  fi
+  if pd_selected notepadpp; then
+    [ -n "${PD_NOTEPAD_EXE:-}" ] || die "Notepad++ was selected but its executable path was not provided."
+    PD_NOTEPAD="$(cygpath -u -U "$PD_NOTEPAD_EXE")"
+  fi
+  if pd_selected pwsh; then
+    [ -n "${PD_PWSH_EXE:-}" ] || die "PowerShell 7 was selected but its executable path was not provided."
+    PD_PWSH="$(cygpath -u -U "$PD_PWSH_EXE")"
+  fi
 }
 install_codex() {
   if [ "$PD_OS" = windows ]; then
@@ -271,47 +363,94 @@ register_available_command() {
   fi
 }
 
-if [ "$PD_ONLY_CODEX" -ne 1 ]; then
-  case "$PD_OS" in macos|linux) install_unix_tools ;; windows) install_windows_tools ;; esac
-  if [ "$PD_OS" != windows ]; then install_portable_unix_tools; fi
-  install_rustifiedgit
-  if [ "$PD_OS" = windows ]; then install_portable_yazi_windows; fi
-fi
-install_codex
+pd_windows_command_selected() {
+  case "$1" in
+    bash|git|tmux|fzf|yazi|rustifiedgit|wezterm|btop|codex|copilot)
+      pd_selected "$1" ;;
+    ya|file|ffmpeg|ffprobe|7z|7zz|jq|pdftoppm|pdftotext|pdfinfo|fd|rg|zoxide|resvg|magick|xclip|wl-copy|wl-paste|gio)
+      pd_selected yazi ;;
+    code) pd_selected vscode ;;
+    'notepad++') pd_selected notepadpp ;;
+    pwsh) pd_selected pwsh ;;
+    *) return 1 ;;
+  esac
+}
+
 if [ "$PD_OS" = windows ]; then
-  if [ "$PD_ONLY_CODEX" -eq 1 ] && [ -f "$PD_ROOT/state/windows-commands.tsv" ]; then
-    awk -F '\t' '$1 != "codex"' "$PD_ROOT/state/windows-commands.tsv" > "$PD_TEMP/windows-commands.tsv"
+  if [ "$PD_ONLY_CODEX" -ne 1 ]; then install_windows_tools; fi
+elif pd_wants_homebrew; then
+  install_unix_tools
+else
+  PD_TOOL_BIN="$PD_BREW/bin"
+fi
+if [ "$PD_OS" != windows ] &&
+    { pd_selected copilot || pd_selected vscode || pd_selected wezterm; }; then
+  install_portable_unix_tools
+fi
+if pd_selected rustifiedgit; then
+  if [ "$PD_OS" != windows ]; then
+    have git && have curl && have tar || die "RustifiedGit bootstrap requires existing git, curl and tar."
+  fi
+  install_rustifiedgit
+fi
+if [ "$PD_OS" = windows ] && pd_selected yazi; then install_portable_yazi_windows; fi
+if pd_selected codex; then install_codex; fi
+
+if [ "$PD_OS" = windows ]; then
+  if [ -f "$PD_ROOT/state/windows-commands.tsv" ]; then
+    cp "$PD_ROOT/state/windows-commands.tsv" "$PD_TEMP/windows-commands.previous.tsv"
+  fi
+  if [ "$PD_SELECTION_MODE" = explicit ] || [ "$PD_ONLY_CODEX" -eq 1 ]; then
+    : > "$PD_TEMP/windows-commands.tsv"
+    if [ -f "$PD_TEMP/windows-commands.previous.tsv" ]; then
+      while IFS=$'\t' read -r pd_name pd_target; do
+        [ -n "$pd_name" ] || continue
+        if ! pd_windows_command_selected "$pd_name"; then
+          printf '%s\t%s\n' "$pd_name" "$pd_target" >> "$PD_TEMP/windows-commands.tsv"
+        fi
+      done < "$PD_TEMP/windows-commands.previous.tsv"
+    fi
     mv "$PD_TEMP/windows-commands.tsv" "$PD_ROOT/state/windows-commands.tsv"
   else
-    if [ -f "$PD_ROOT/state/windows-commands.tsv" ]; then
-      cp "$PD_ROOT/state/windows-commands.tsv" "$PD_TEMP/windows-commands.previous.tsv"
-    fi
     : > "$PD_ROOT/state/windows-commands.tsv"
   fi
-  register_command codex "$PD_INSTALL/codex/bin/codex.exe"
-else
-  register_command codex "$PD_INSTALL/codex/bin/codex"
 fi
-if [ "$PD_ONLY_CODEX" -ne 1 ]; then
+if pd_selected codex; then
   if [ "$PD_OS" = windows ]; then
-    register_command bash "${PD_MSYS2_ROOT%/}/usr/bin/bash.exe"
-    register_available_command tmux "${PD_MSYS2_ROOT%/}/usr/bin/tmux.exe"
-    register_available_command git "${PD_MSYS2_ROOT%/}/usr/bin/git.exe"
-    for pd_cmd in yazi ya; do register_available_command "$pd_cmd" "$PD_INSTALL/yazi/bin/$pd_cmd.exe"; done
-    register_available_command fzf "${PD_MSYS2_ROOT%/}/ucrt64/bin/fzf.exe"
-    register_command btop "$PD_BTOP"
-    register_available_command rustifiedgit "$PD_INSTALL/rustifiedgit/bin/rustifiedgit.exe"
+    register_command codex "$PD_INSTALL/codex/bin/codex.exe"
   else
-    for pd_cmd in bash tmux yazi ya git btop fzf; do register_command "$pd_cmd" "$PD_TOOL_BIN/$pd_cmd"; done
-    register_command rustifiedgit "$PD_INSTALL/rustifiedgit/bin/rustifiedgit"
+    register_command codex "$PD_INSTALL/codex/bin/codex"
   fi
+fi
+if [ "$PD_OS" = windows ]; then
+  if pd_selected bash; then register_command bash "${PD_MSYS2_ROOT%/}/usr/bin/bash.exe"; fi
+  if pd_selected tmux; then register_available_command tmux "${PD_MSYS2_ROOT%/}/usr/bin/tmux.exe"; fi
+  if pd_selected git; then register_available_command git "${PD_MSYS2_ROOT%/}/usr/bin/git.exe"; fi
+  if pd_selected yazi; then
+    for pd_cmd in yazi ya; do register_available_command "$pd_cmd" "$PD_INSTALL/yazi/bin/$pd_cmd.exe"; done
+  fi
+  if pd_selected fzf; then register_available_command fzf "${PD_MSYS2_ROOT%/}/ucrt64/bin/fzf.exe"; fi
+  if pd_selected btop; then register_command btop "$PD_BTOP"; fi
+  if pd_selected rustifiedgit; then register_available_command rustifiedgit "$PD_INSTALL/rustifiedgit/bin/rustifiedgit.exe"; fi
+  if pd_selected copilot; then register_command copilot "$PD_COPILOT"; fi
+  if pd_selected vscode; then register_command code "$PD_CODE"; fi
+  if pd_selected notepadpp; then register_command 'notepad++' "$PD_NOTEPAD"; fi
+  if pd_selected pwsh; then register_command pwsh "$PD_PWSH"; fi
+else
+  for pd_cmd in bash tmux yazi ya git btop fzf; do
+    pd_id="$pd_cmd"
+    [ "$pd_cmd" != ya ] || pd_id=yazi
+    if pd_selected "$pd_id"; then register_command "$pd_cmd" "$PD_TOOL_BIN/$pd_cmd"; fi
+  done
+  if pd_selected rustifiedgit; then register_command rustifiedgit "$PD_INSTALL/rustifiedgit/bin/rustifiedgit"; fi
+  if pd_selected wezterm; then register_command wezterm "$PD_WEZTERM"; fi
+  if pd_selected copilot; then register_command copilot "$PD_COPILOT"; fi
+  if pd_selected vscode; then register_command code "$PD_CODE"; fi
+fi
+if pd_selected wezterm && [ "$PD_OS" = windows ]; then
   register_command wezterm "$PD_WEZTERM"
-  register_command copilot "$PD_COPILOT"
-  register_command code "$PD_CODE"
-  if [ "$PD_OS" = windows ]; then
-    register_command notepad++ "$PD_NOTEPAD"
-    register_command pwsh "$PD_PWSH"
-  fi
+fi
+if pd_selected yazi; then
   for pd_cmd in file ffmpeg ffprobe 7z 7zz jq pdftoppm pdftotext pdfinfo fd rg zoxide resvg magick xclip wl-copy wl-paste gio; do
     pd_suffix=""; if [ "$PD_OS" = windows ]; then pd_suffix=.exe; fi
     if [ -x "$PD_TOOL_BIN/$pd_cmd$pd_suffix" ]; then register_command "$pd_cmd" "$PD_TOOL_BIN/$pd_cmd$pd_suffix";
@@ -324,10 +463,12 @@ if [ "$PD_ONLY_CODEX" -ne 1 ]; then
   for pd_config in keymap.toml yazi.toml; do
     if [ ! -e "$PD_ROOT/config/yazi/$pd_config" ]; then cp "$PD_DIR/yazi/$pd_config" "$PD_ROOT/config/yazi/$pd_config"; fi
   done
-  if [ ! -e "$PD_ROOT/config/wezterm/wezterm.lua" ]; then cp "$PD_DIR/wezterm.lua" "$PD_ROOT/config/wezterm/wezterm.lua"; fi
+fi
+if pd_selected wezterm && [ ! -e "$PD_ROOT/config/wezterm/wezterm.lua" ]; then
+  cp "$PD_DIR/wezterm.lua" "$PD_ROOT/config/wezterm/wezterm.lua"
 fi
 if [ "$PD_ACTIVATE" -eq 1 ]; then pd_register_path; fi
-"$PD_BIN/codex" --version
+if pd_selected codex; then "$PD_BIN/codex" --version; fi
 if [ "$PD_ACTIVATE" -eq 1 ]; then
   log "Ready. Restart existing terminals/apps to inherit $PD_BIN."
 else

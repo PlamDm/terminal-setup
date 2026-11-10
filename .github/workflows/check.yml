@@ -41,6 +41,9 @@ jobs:
       - name: Check protected and read-only MSYS2 reuse
         shell: powershell
         run: .\tests\check-msys2.ps1
+      - name: Check interactive tool catalog and managed/external status
+        shell: powershell
+        run: .\tests\check-interactive.ps1
       - name: Preserve existing portable tools and install missing tools offline
         shell: powershell
         run: .\tests\check-preserve-tools.ps1
