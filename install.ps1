@@ -5,6 +5,9 @@ param(
     [switch] $OnlyCodex,
     [switch] $NoActivate,
     [switch] $Activate,
+    [switch] $UseExistingMsys2,
+    [ValidatePattern('^[A-Za-z]:[\\/][A-Za-z0-9_\\/-]+$')]
+    [string] $Msys2Root,
     [ValidatePattern('^[A-Za-z]:[\\/][A-Za-z0-9_\\/-]+$')]
     [string] $PlaygroundRoot = (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'playground'),
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._/-]*$')]
@@ -88,7 +91,8 @@ function Install-ZipTool {
 function Install-Msys2 {
     $bashPath = Join-Path $msysRoot 'usr\bin\bash.exe'
     if (Test-Path -LiteralPath $bashPath) {
-        if (-not (Test-Path -LiteralPath (Join-Path $msysRoot 'usr\bin\pacman.exe'))) {
+        if (-not (Test-Path -LiteralPath (Join-Path $msysRoot 'usr\bin\pacman.exe')) -or
+            -not (Test-Path -LiteralPath (Join-Path $msysRoot 'usr\bin\cygpath.exe'))) {
             throw "$msysRoot does not contain a valid MSYS2 installation."
         }
         return
@@ -105,6 +109,62 @@ function Install-Msys2 {
         Move-Item -LiteralPath (Join-Path $staging 'msys64') -Destination $msysRoot
     } finally { Remove-Item -LiteralPath $staging -Recurse -Force }
     if (-not (Test-Path -LiteralPath $bashPath)) { throw "MSYS2 archive did not create $bashPath." }
+}
+function Test-Msys2Installation {
+    param([string] $Path)
+    foreach ($relativePath in @('usr\bin\bash.exe', 'usr\bin\pacman.exe', 'usr\bin\cygpath.exe')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $Path $relativePath) -PathType Leaf)) { return $false }
+    }
+    return $true
+}
+function Find-SystemMsys2 {
+    $candidates = @()
+    if ($env:MSYS2_ROOT) { $candidates += $env:MSYS2_ROOT }
+    if ($env:SystemDrive) { $candidates += (Join-Path $env:SystemDrive 'msys64') }
+    $candidates += 'C:\msys64'
+    if ($env:USERPROFILE) { $candidates += (Join-Path $env:USERPROFILE 'msys64') }
+    $pacman = Get-Command 'pacman.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+    $pacmanPath = $null
+    if ($pacman) {
+        if ($pacman.Path) { $pacmanPath = $pacman.Path }
+        elseif ($pacman.Source) { $pacmanPath = $pacman.Source }
+    }
+    if ($pacmanPath) {
+        $candidate = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $pacmanPath))
+        $candidates += $candidate
+    }
+    foreach ($candidate in $candidates) {
+        if ($candidate -and (Test-Msys2Installation -Path $candidate)) {
+            return [IO.Path]::GetFullPath($candidate).TrimEnd('\', '/')
+        }
+    }
+    return $null
+}
+function Select-Msys2Root {
+    param([string] $DefaultRoot)
+    if ($Msys2Root) {
+        if (-not (Test-Msys2Installation -Path $Msys2Root)) {
+            throw "The requested MSYS2 root does not contain bash, pacman and cygpath: $Msys2Root"
+        }
+        return [IO.Path]::GetFullPath($Msys2Root).TrimEnd('\', '/')
+    }
+    $detectedRoot = Find-SystemMsys2
+    if ($UseExistingMsys2) {
+        if (-not $detectedRoot) {
+            throw 'No existing MSYS2 installation was found. Set -Msys2Root to its location.'
+        }
+        Write-Host "[playground] Reusing system MSYS2 at $detectedRoot."
+        return $detectedRoot
+    }
+    if ($detectedRoot -and $Host.Name -eq 'ConsoleHost' -and $env:CI -notin @('true', '1')) {
+        $answer = Read-Host "Found MSYS2 at $detectedRoot. Reuse it? [y/N]"
+        if ($answer -match '^(?i:y|yes)$') {
+            Write-Host "[playground] Reusing system MSYS2 at $detectedRoot."
+            return $detectedRoot
+        }
+        Write-Host "[playground] Installing a separate MSYS2 under $DefaultRoot."
+    }
+    return $DefaultRoot
 }
 function Install-Codex {
     $codexHome = Join-Path $configDirectory 'codex'
@@ -182,6 +242,7 @@ function Write-WindowsLaunchers {
         $lines = @(
             '@echo off', 'setlocal', 'set "MSYSTEM=UCRT64"',
             'set "CHERE_INVOKING=1"', 'set "MSYS2_PATH_TYPE=inherit"',
+            ('set "PD_MSYS2_ROOT=' + $msysRoot + '"'),
             ('set "PATH=' + $binDirectory + ';' + $msysRoot + '\ucrt64\bin;' + $msysRoot + '\usr\bin;%PATH%"'),
             ('set "XDG_CONFIG_HOME=' + $configDirectory + '"'),
             ('set "XDG_CACHE_HOME=' + $cacheDirectory + '"'),
@@ -238,6 +299,29 @@ function Write-WindowsLaunchers {
         )
     }
 }
+function Update-WezTermMsys2Config {
+    $configPath = Join-Path $configDirectory 'wezterm\wezterm.lua'
+    if (-not (Test-Path -LiteralPath $configPath)) { return }
+    $content = [IO.File]::ReadAllText($configPath)
+    $oldBashPath = "root .. '/install/msys2/usr/bin/bash.exe'"
+    if (-not $content.Contains($oldBashPath)) { return }
+    $helper = @'
+local msys2_root = os.getenv('PD_MSYS2_ROOT')
+if not msys2_root then
+  local path_file = io.open(root .. '/config/path/msys2-root.txt', 'r')
+  if path_file then
+    msys2_root = path_file:read('*a'):match('^%s*(.-)%s*$')
+    path_file:close()
+  end
+end
+msys2_root = (msys2_root or (root .. '/install/msys2')):gsub('\\', '/')
+'@
+    $content = [regex]::Replace($content, '(?m)^(local root = .*)$', ('$1' + [Environment]::NewLine + $helper))
+    $content = $content.Replace($oldBashPath, "msys2_root .. '/usr/bin/bash.exe'")
+    $content = $content.Replace("root .. '/install/msys2/ucrt64/bin;'", "msys2_root .. '/ucrt64/bin;'")
+    $content = $content.Replace("root .. '/install/msys2/usr/bin;'", "msys2_root .. '/usr/bin;'")
+    [IO.File]::WriteAllText($configPath, $content, [Text.UTF8Encoding]::new($false))
+}
 function Register-WindowsPath {
     $previous = [Environment]::GetEnvironmentVariable('Path', 'User')
     $backup = Join-Path $PlaygroundRoot 'config\path\windows-user-path.before.txt'
@@ -267,7 +351,7 @@ public static class PdPlaygroundEnvironment {
 if ($DryRun) {
     Write-Host "[playground] Preview only; root: $PlaygroundRoot"
     if (-not $OnlyCodex) {
-        Write-Host "[playground] Install native MSYS2 in $msysRoot."
+        Write-Host "[playground] Install MSYS2 in $msysRoot by default; use -UseExistingMsys2 or -Msys2Root to reuse an existing installation."
         Write-Host '[playground] Install Bash, tmux, git, Rust and fzf inside MSYS2; build Yazi with portable cache/state overrides.'
         Write-Host '[playground] Download portable WezTerm and btop4win under install/.'
         Write-Host '[playground] Add Yazi preview/search helpers, portable PowerShell 7, GitHub Copilot CLI, VS Code, Notepad++ and a private Nerd Font.'
@@ -285,9 +369,13 @@ if ($DryRun) {
 if ($env:OS -ne 'Windows_NT' -or -not [Environment]::Is64BitOperatingSystem) {
     throw 'This bootstrap requires 64-bit Windows. On macOS/Linux use install.sh.'
 }
+$msysRoot = Select-Msys2Root -DefaultRoot $msysRoot
+if ($msysRoot -match '\s') { throw 'MSYS2 must be installed in a path without whitespace.' }
 foreach ($directory in @($installRoot, $binDirectory, $configDirectory, $cacheDirectory, (Join-Path $PlaygroundRoot 'tmp'))) {
     [IO.Directory]::CreateDirectory($directory) | Out-Null
 }
+[IO.Directory]::CreateDirectory((Join-Path $configDirectory 'path')) | Out-Null
+[IO.File]::WriteAllText((Join-Path $configDirectory 'path\msys2-root.txt'), $msysRoot + [Environment]::NewLine)
 Install-Msys2
 $environmentNames = @('MSYSTEM', 'CHERE_INVOKING', 'MSYS2_PATH_TYPE', 'PD_MSYS2_READY', 'PD_WEZTERM_EXE', 'PD_BTOP_EXE', 'PD_COPILOT_EXE', 'PD_CODE_EXE', 'PD_NOTEPAD_EXE', 'PD_PWSH_EXE', 'TEMP', 'TMP')
 $savedEnvironment = @{}
@@ -314,12 +402,15 @@ try {
     Install-Codex
     $unixRoot = & $cygpath -u $PlaygroundRoot
     if ($LASTEXITCODE -ne 0) { throw 'Could not translate the playground root.' }
+    $unixMsysRoot = & $cygpath -u $msysRoot
+    if ($LASTEXITCODE -ne 0) { throw 'Could not translate the selected MSYS2 root.' }
     $unixScript = & $cygpath -u (Join-Path $PSScriptRoot 'install.sh')
     if ($LASTEXITCODE -ne 0) { throw 'Could not translate the installer path.' }
-    $arguments = @('--login', $unixScript.Trim(), '--root', $unixRoot.Trim(), '--rustifiedgit-ref', $RustifiedGitRef)
+    $arguments = @('--login', $unixScript.Trim(), '--root', $unixRoot.Trim(), '--rustifiedgit-ref', $RustifiedGitRef, '--msys2-root', $unixMsysRoot.Trim())
     if ($OnlyCodex) { $arguments += '--only-codex' }
     if ($NoActivate) { $arguments += '--no-activate' } else { $arguments += '--activate' }
     Invoke-Checked -Program $bash -Arguments $arguments
+    Update-WezTermMsys2Config
     Write-WindowsLaunchers
     if (-not $NoActivate) { Register-WindowsPath }
 } finally {

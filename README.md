@@ -49,8 +49,18 @@ Choose a user-writable directory without spaces or special characters, on a
 filesystem supporting junctions and hard links (normally NTFS).
 The default is `%USERPROFILE%\playground`.
 
-The installer extracts MSYS2's official self-extracting base archive into `install/msys2`, with
-no setup registration or Start menu shortcuts. Its UCRT64 packages supply Git
+The default installer extracts MSYS2's official self-extracting base archive into `install/msys2`, with
+no setup registration or Start menu shortcuts. If it finds an existing MSYS2 in
+common locations (`%SystemDrive%\msys64`, `C:\msys64`, or `%USERPROFILE%\msys64`),
+through `MSYS2_ROOT`, or on `PATH`, PowerShell asks
+whether to reuse it. Answer `y` to use it without downloading another MSYS2;
+the installer adds the required packages to that installation. Answer `n` to
+keep the tools setup self-contained under the selected playground folder.
+For unattended installs, pass `-UseExistingMsys2`; use `-Msys2Root C:\msys64`
+to select a specific existing installation. The Bash entry point accepts
+`--use-existing-msys2` and `--msys2-root /c/msys64` as well. The selected path
+is saved in `config/path/msys2-root.txt` for WezTerm and generated launchers.
+Its UCRT64 packages supply Git
 helpers, Rust and their library dependencies; Bash and tmux use MSYS2. Yazi 26.9.1
 is compiled with a small cache/state directory override because the stock Windows
 release otherwise uses AppData regardless of XDG settings.

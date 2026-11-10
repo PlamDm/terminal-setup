@@ -24,6 +24,9 @@ pd_write_environment() {
   {
     printf '# Managed by terminal-setup; usable by Bash, Zsh and POSIX shells.\n'
     printf '_pd_playground_bin=%s\n' "$(pd_quote "$PD_ROOT/bin")"
+    if [ "${PD_OS:-}" = windows ]; then
+      printf 'export PD_PLAYGROUND_MSYS2_ROOT=%s\n' "$(pd_quote "$PD_MSYS2_ROOT")"
+    fi
     cat <<'EOF'
 _pd_playground_path="$(printf '%s\n' "$PATH" | awk -v pd_bin="$_pd_playground_bin" '
   BEGIN { FS = ":" }
@@ -205,7 +208,13 @@ pd_register_linux_gui() {
 
 pd_write_launcher() {
   local pd_name="$1" pd_target="$2" pd_root_q pd_target_q
-  case "$pd_target" in "$PD_ROOT/install/"*) ;; *) die "Tool outside playground: $pd_target." ;; esac
+  case "$pd_target" in
+    "$PD_ROOT/install/"*) ;;
+    *)
+      if [ "${PD_OS:-}" != windows ] || [[ "$pd_target" != "$PD_MSYS2_ROOT/"* ]]; then
+        die "Tool outside playground and selected MSYS2: $pd_target."
+      fi ;;
+  esac
   pd_root_q="$(pd_quote "$PD_ROOT")"
   pd_target_q="$(pd_quote "$pd_target")"
   {
@@ -223,7 +232,8 @@ case "$(uname -s)" in
   MSYS*|MINGW*)
     export TEMP="$(cygpath -m "$PD_PLAYGROUND_ROOT/tmp")"
     export TMP="$TEMP"
-    export PATH="$PD_PLAYGROUND_ROOT/bin:$PD_PLAYGROUND_ROOT/install/msys2/ucrt64/bin:$PD_PLAYGROUND_ROOT/install/msys2/usr/bin:$PATH" ;;
+    export PD_PLAYGROUND_MSYS2_ROOT
+    export PATH="$PD_PLAYGROUND_ROOT/bin:$PD_PLAYGROUND_MSYS2_ROOT/ucrt64/bin:$PD_PLAYGROUND_MSYS2_ROOT/usr/bin:$PATH" ;;
   *) export PATH="$PD_PLAYGROUND_ROOT/bin:$PD_PLAYGROUND_ROOT/install/homebrew/bin:$PATH" ;;
 esac
 EOF
@@ -277,7 +287,7 @@ case "$(uname -s)" in
     YAZI_STATE_HOME="$(cygpath -m "$YAZI_STATE_HOME")"
     XDG_RUNTIME_DIR="$(cygpath -m "$XDG_RUNTIME_DIR")"
     export YAZI_CONFIG_HOME
-    export YAZI_FILE_ONE="$(cygpath -m "$PD_PLAYGROUND_ROOT/install/msys2/usr/bin/file.exe")" ;;
+    export YAZI_FILE_ONE="$(cygpath -m "$PD_PLAYGROUND_MSYS2_ROOT/usr/bin/file.exe")" ;;
 esac
 EOF
         printf 'exec %s "$@"\n' "$pd_target_q" ;;

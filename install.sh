@@ -9,6 +9,8 @@ PD_REF="7a2be2ebfa45cfc5be78e788a820ee145953f36b"
 PD_DRY_RUN=0
 PD_ONLY_CODEX=0
 PD_ACTIVATE=0
+PD_USE_EXISTING_MSYS2=0
+PD_MSYS2_ROOT_ARG=""
 PD_PREVIEW_OS=""
 PD_TEMP=""
 
@@ -28,6 +30,8 @@ By default, leaves profiles and persistent PATH unchanged. Source env-extra.sh.
   --no-activate        Install without changing profiles or persistent PATH.
   --activate           Opt in to shell hooks and desktop user PATH registration.
   --root DIR           Choose another absolute playground directory.
+  --use-existing-msys2 Reuse a detected system MSYS2 on Windows.
+  --msys2-root DIR     Use this existing MSYS2 root on Windows.
   --rustifiedgit-ref REF    Build a commit, tag or branch from PlamDm/RustifiedGit.
   --platform OS        Preview macos, linux or windows; requires --dry-run.
   -h, --help           Show help.
@@ -42,10 +46,12 @@ while [ "$#" -gt 0 ]; do
     --only-codex) PD_ONLY_CODEX=1; shift ;;
     --no-activate) PD_ACTIVATE=0; shift ;;
     --activate) PD_ACTIVATE=1; shift ;;
-    --root|--rustifiedgit-ref|--platform)
+    --use-existing-msys2) PD_USE_EXISTING_MSYS2=1; shift ;;
+    --root|--msys2-root|--rustifiedgit-ref|--platform)
       [ "$#" -ge 2 ] && [ -n "$2" ] || die "Missing value for $1."
       case "$1" in
         --root) PD_ROOT="$2" ;;
+        --msys2-root) PD_MSYS2_ROOT_ARG="$2" ;;
         --rustifiedgit-ref) PD_REF="$2" ;;
         --platform) PD_PREVIEW_OS="$2" ;;
       esac
@@ -85,7 +91,7 @@ if [ "$PD_DRY_RUN" -eq 1 ]; then
         log "Install WezTerm under $PD_ROOT/install (apps/WezTerm.app on macOS)."
         log "Custom prefixes can require compilation and can exceed 10 minutes." ;;
       windows)
-        log "Install MSYS2 at $PD_ROOT/install/msys2; update it in two Bash processes."
+        log "Install MSYS2 at $PD_ROOT/install/msys2 by default; use --use-existing-msys2 or --msys2-root to reuse an existing installation."
         log "Install bash tmux git file and UCRT64 rust fzf through its pacman."
         log "Build Yazi with portable cache and state directory overrides."
         log "Download portable WezTerm and btop4win under $PD_ROOT/install."
@@ -110,6 +116,10 @@ if [ "$PD_OS" = windows ] && [ "${PD_MSYS2_READY:-}" != 1 ]; then
   pd_windows_args=()
   if [ "$PD_ONLY_CODEX" -eq 1 ]; then pd_windows_args+=(-OnlyCodex); fi
   if [ "$PD_ACTIVATE" -eq 1 ]; then pd_windows_args+=(-Activate); else pd_windows_args+=(-NoActivate); fi
+  if [ "$PD_USE_EXISTING_MSYS2" -eq 1 ]; then pd_windows_args+=(-UseExistingMsys2); fi
+  if [ -n "$PD_MSYS2_ROOT_ARG" ]; then
+    pd_windows_args+=(-Msys2Root "$(cygpath -w "$PD_MSYS2_ROOT_ARG")")
+  fi
   exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File \
     "$(cygpath -w "$PD_DIR/install.ps1")" -PlaygroundRoot "$(cygpath -w "$PD_ROOT")" \
     -RustifiedGitRef "$PD_REF" "${pd_windows_args[@]}"
@@ -125,6 +135,12 @@ PD_ROOT="$(CDPATH= cd -- "$PD_ROOT" && pwd)"
 PD_INSTALL="$PD_ROOT/install"
 PD_BIN="$PD_ROOT/bin"
 PD_BREW="$PD_INSTALL/homebrew"
+if [ "$PD_OS" = windows ]; then
+  PD_MSYS2_ROOT="$PD_MSYS2_ROOT_ARG"
+  [ -n "$PD_MSYS2_ROOT" ] || PD_MSYS2_ROOT="$PD_INSTALL/msys2"
+  case "$PD_MSYS2_ROOT" in *[[:space:]]*) die "MSYS2 requires a path without whitespace." ;; esac
+  [ -x "$PD_MSYS2_ROOT/usr/bin/bash.exe" ] || die "MSYS2 was not found at $PD_MSYS2_ROOT."
+fi
 mkdir -p "$PD_INSTALL" "$PD_BIN" "$PD_ROOT/config" "$PD_ROOT/state" "$PD_ROOT/cache" "$PD_ROOT/tmp"
 export TMPDIR="$PD_ROOT/tmp"
 PD_TEMP="$(mktemp -d "$PD_ROOT/tmp/install.XXXXXX")"
@@ -179,7 +195,7 @@ install_windows_tools() {
   export PATH="/ucrt64/bin:/usr/bin:$PATH"
   PD_WEZTERM="$(cygpath -u "$PD_WEZTERM_EXE")"
   PD_BTOP="$(cygpath -u "$PD_BTOP_EXE")"
-  PD_TOOL_BIN="$PD_INSTALL/msys2/ucrt64/bin"
+  PD_TOOL_BIN="$PD_MSYS2_ROOT/ucrt64/bin"
   PD_COPILOT="$(cygpath -u "$PD_COPILOT_EXE")"
   PD_CODE="$(cygpath -u "$PD_CODE_EXE")"
   PD_NOTEPAD="$(cygpath -u "$PD_NOTEPAD_EXE")"
@@ -232,11 +248,11 @@ else
 fi
 if [ "$PD_ONLY_CODEX" -ne 1 ]; then
   if [ "$PD_OS" = windows ]; then
-    register_command bash "$PD_INSTALL/msys2/usr/bin/bash.exe"
-    register_command tmux "$PD_INSTALL/msys2/usr/bin/tmux.exe"
-    register_command git "$PD_INSTALL/msys2/usr/bin/git.exe"
+    register_command bash "$PD_MSYS2_ROOT/usr/bin/bash.exe"
+    register_command tmux "$PD_MSYS2_ROOT/usr/bin/tmux.exe"
+    register_command git "$PD_MSYS2_ROOT/usr/bin/git.exe"
     for pd_cmd in yazi ya; do register_command "$pd_cmd" "$PD_INSTALL/yazi/bin/$pd_cmd.exe"; done
-    register_command fzf "$PD_INSTALL/msys2/ucrt64/bin/fzf.exe"
+    register_command fzf "$PD_MSYS2_ROOT/ucrt64/bin/fzf.exe"
     register_command btop "$PD_BTOP"
     register_command rustifiedgit "$PD_INSTALL/rustifiedgit/bin/rustifiedgit.exe"
   else
@@ -253,7 +269,7 @@ if [ "$PD_ONLY_CODEX" -ne 1 ]; then
   for pd_cmd in file ffmpeg ffprobe 7z 7zz jq pdftoppm pdftotext pdfinfo fd rg zoxide resvg magick xclip wl-copy wl-paste gio; do
     pd_suffix=""; if [ "$PD_OS" = windows ]; then pd_suffix=.exe; fi
     if [ -x "$PD_TOOL_BIN/$pd_cmd$pd_suffix" ]; then register_command "$pd_cmd" "$PD_TOOL_BIN/$pd_cmd$pd_suffix";
-    elif [ "$PD_OS" = windows ] && [ "$pd_cmd" = file ]; then register_command file "$PD_INSTALL/msys2/usr/bin/file.exe"; fi
+    elif [ "$PD_OS" = windows ] && [ "$pd_cmd" = file ]; then register_command file "$PD_MSYS2_ROOT/usr/bin/file.exe"; fi
   done
   for pd_config in keymap.toml yazi.toml; do
     if [ ! -e "$PD_ROOT/config/yazi/$pd_config" ]; then cp "$PD_DIR/yazi/$pd_config" "$PD_ROOT/config/yazi/$pd_config"; fi

@@ -5,8 +5,8 @@ pd_native_path() {
 
 pd_install_rust() {
   if [ "$PD_OS" = windows ]; then
-    PD_CARGO="$PD_INSTALL/msys2/ucrt64/bin/cargo.exe"
-    PD_RUSTC="$PD_INSTALL/msys2/ucrt64/bin/rustc.exe"
+    PD_CARGO="$PD_MSYS2_ROOT/ucrt64/bin/cargo.exe"
+    PD_RUSTC="$PD_MSYS2_ROOT/ucrt64/bin/rustc.exe"
   else
     PD_CARGO="$PD_INSTALL/rust/bin/cargo"
     PD_RUSTC="$PD_INSTALL/rust/bin/rustc"
