@@ -283,9 +283,15 @@ PD_MSYS2_READY=1 "$BASH" "$1/install.sh" --root "$PD_ROOT" --msys2-root "$PD_MSY
     Assert ($exitCode -ne 0 -and ($output -join "`n").Contains('outside the existing MSYS2')) 'Setup allowed a playground inside existing MSYS2.'
     Assert ((Get-Msys2Snapshot) -ceq $before) 'Rejected nested playground changed MSYS2.'
 
-    function Find-SystemMsys2 { return $null }
+    function Find-SystemMsys2 { return $msysRoot }
     $Msys2Root = $null
     $UseExistingMsys2 = $false
+    $Msys2SearchPath = $null
+    $privateDefault = Join-Path $PlaygroundRoot 'install\msys2'
+    $selection = Select-Msys2Root -DefaultRoot $privateDefault -UsePrivateRoot
+    Assert ($selection.Root.Equals($privateDefault, [StringComparison]::OrdinalIgnoreCase) -and
+        -not $selection.PreserveInstalled) 'Choosing a private MSYS2 unexpectedly searched for or reused a system installation.'
+    function Find-SystemMsys2 { return $null }
     $selection = Select-Msys2Root -DefaultRoot $msysRoot
     Assert $selection.PreserveInstalled 'Previously managed MSYS2 was not protected on rerun.'
     $selection = Select-Msys2Root -DefaultRoot (Join-Path $root 'fresh-msys2')

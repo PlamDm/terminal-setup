@@ -237,7 +237,7 @@ function Find-SystemMsys2 {
     return $null
 }
 function Select-Msys2Root {
-    param([string] $DefaultRoot)
+    param([string] $DefaultRoot, [switch] $UsePrivateRoot)
     if ($Msys2Root) {
         if (-not (Test-Msys2Installation -Path $Msys2Root)) {
             throw "The requested MSYS2 root does not contain bash, pacman and cygpath: $Msys2Root"
@@ -255,6 +255,12 @@ function Select-Msys2Root {
         }
         Write-Host "[playground] Reusing MSYS2 found at $searchResult."
         return [pscustomobject]@{ Root = $searchResult; PreserveInstalled = $true }
+    }
+    if ($UsePrivateRoot) {
+        return [pscustomobject]@{
+            Root = $DefaultRoot
+            PreserveInstalled = (Test-Msys2Installation -Path $DefaultRoot)
+        }
     }
     $canPrompt = $Host.Name -eq 'ConsoleHost' -and $env:CI -notin @('true', '1')
     $detectedRoot = Find-SystemMsys2 -SearchFixedDrives:($UseExistingMsys2 -or $canPrompt)
@@ -558,7 +564,30 @@ if ($Interactive) {
     $cacheDirectory = Join-Path $PlaygroundRoot 'cache'
     $msysRoot = Join-Path $installRoot 'msys2'
 }
-$msys2 = Select-Msys2Root -DefaultRoot $msysRoot
+$installPrivateMsys2 = $false
+if ($Interactive -and -not ($Msys2Root -or $Msys2SearchPath -or $UseExistingMsys2)) {
+    while ($true) {
+        $msys2Choice = Show-PDMSYS2ChoiceMenu -PrivateRoot $msysRoot -AllowInstall:(-not $Msys2ReadOnly)
+        if (-not $msys2Choice) {
+            Write-Host '[playground] Installation cancelled.'
+            exit 0
+        }
+        if ($msys2Choice -eq 'private') {
+            $installPrivateMsys2 = $true
+            break
+        }
+        $searchStart = if ($env:SystemDrive) { $env:SystemDrive + '\' } else { [Environment]::GetFolderPath('UserProfile') }
+        $searchPath = Show-PDInstallDirectoryPicker -InitialPath $searchStart -SearchForMsys2
+        if (-not $searchPath) { continue }
+        $searchResult = Find-Msys2UnderPath -Path $searchPath
+        if ($searchResult) {
+            $Msys2Root = $searchResult
+            break
+        }
+        Write-Host "[playground] No MSYS2 installation was found under $searchPath. Choose another folder or use a private installation."
+    }
+}
+$msys2 = Select-Msys2Root -DefaultRoot $msysRoot -UsePrivateRoot:$installPrivateMsys2
 $msysRoot = $msys2.Root
 if ($Msys2ReadOnly -and -not $msys2.PreserveInstalled) {
     throw '-Msys2ReadOnly requires an existing MSYS2 installation.'

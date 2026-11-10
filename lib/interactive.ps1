@@ -129,13 +129,14 @@ function Test-PDReadOnlyBuildAvailable {
 }
 
 function Show-PDInstallDirectoryPicker {
-    param([string] $InitialPath)
+    param([string] $InitialPath, [switch] $SearchForMsys2)
     if ([Console]::IsInputRedirected -or [Console]::IsOutputRedirected) {
         throw 'Interactive directory selection requires a terminal.'
     }
     $suggested = [IO.Path]::GetFullPath($InitialPath)
     if (Test-Path -LiteralPath $suggested -PathType Container) {
-        $current = $suggested.TrimEnd('\', '/')
+        $current = $suggested
+        if ($current -notmatch '^[A-Za-z]:\\$') { $current = $current.TrimEnd('\', '/') }
         $suggested = $null
     } else {
         $current = Split-Path -Parent $suggested
@@ -150,17 +151,20 @@ function Show-PDInstallDirectoryPicker {
         [Console]::CursorVisible = $false
         while ($true) {
             $rows = New-Object 'System.Collections.Generic.List[object]'
-            if ($suggested -and (Test-PDInstallPath -Path $suggested) -and
+            if (-not $SearchForMsys2 -and $suggested -and (Test-PDInstallPath -Path $suggested) -and
                 (Split-Path -Parent $suggested).TrimEnd('\', '/') -ieq $current.TrimEnd('\', '/')) {
                 $rows.Add([pscustomobject]@{
                     Kind = 'Suggested'; Path = $suggested
                     Label = "Use suggested destination (created on install): $suggested"
                 })
             }
-            if (Test-PDInstallPath -Path $current) {
-                $rows.Add([pscustomobject]@{ Kind = 'Current'; Path = $current; Label = "Use this directory: $current" })
+            if ($SearchForMsys2 -or (Test-PDInstallPath -Path $current)) {
+                $currentLabel = if ($SearchForMsys2) { "Search this folder: $current" } else { "Use this directory: $current" }
+                $rows.Add([pscustomobject]@{ Kind = 'Current'; Path = $current; Label = $currentLabel })
             }
-            $rows.Add([pscustomobject]@{ Kind = 'Create'; Path = $current; Label = '[Create a new subdirectory]' })
+            if (-not $SearchForMsys2) {
+                $rows.Add([pscustomobject]@{ Kind = 'Create'; Path = $current; Label = '[Create a new subdirectory]' })
+            }
             $driveRoot = [IO.Path]::GetPathRoot($current)
             $atDriveRoot = $driveRoot -and $driveRoot.TrimEnd('\', '/') -ieq $current.TrimEnd('\', '/')
             $parent = if ($atDriveRoot) { $null } else { Split-Path -Parent ($current.TrimEnd('\', '/')) }
@@ -184,9 +188,17 @@ function Show-PDInstallDirectoryPicker {
             }
             if ($index -ge $rows.Count) { $index = 0 }
             [Console]::Clear()
-            [Console]::WriteLine('Select install folder (Enter selects; arrows navigate; Backspace goes up; Esc cancels)')
+            if ($SearchForMsys2) {
+                [Console]::WriteLine('Choose a folder to search for MSYS2 (Enter searches this folder and descendants; Esc cancels)')
+            } else {
+                [Console]::WriteLine('Select install folder (Enter selects; arrows navigate; Backspace goes up; Esc cancels)')
+            }
             [Console]::WriteLine("Current: $current")
-            [Console]::WriteLine('Choose a dedicated path without spaces. The suggested destination is not created until install.')
+            if ($SearchForMsys2) {
+                [Console]::WriteLine('Searching a drive root may take a long time.')
+            } else {
+                [Console]::WriteLine('Choose a dedicated path without spaces. The suggested destination is not created until install.')
+            }
             if ($listingError) { [Console]::WriteLine("Cannot list this folder: $listingError") }
             [Console]::WriteLine()
             $start = [Math]::Max(0, $index - 7)
@@ -230,6 +242,48 @@ function Show-PDInstallDirectoryPicker {
                         }
                     }
                 }
+            }
+        }
+    } finally {
+        [Console]::CursorVisible = $cursorVisible
+    }
+}
+
+function Show-PDMSYS2ChoiceMenu {
+    param([string] $PrivateRoot, [switch] $AllowInstall)
+    if ([Console]::IsInputRedirected -or [Console]::IsOutputRedirected) {
+        throw 'Interactive MSYS2 selection requires a terminal.'
+    }
+    $choices = New-Object 'System.Collections.Generic.List[object]'
+    if ($AllowInstall) {
+        $choices.Add([pscustomobject]@{
+            Id = 'private'
+            Label = "Use/install a private MSYS2 under $PrivateRoot"
+        })
+    }
+    $choices.Add([pscustomobject]@{
+        Id = 'search'
+        Label = 'Search for an existing MSYS2 installation'
+    })
+    $index = 0
+    $cursorVisible = [Console]::CursorVisible
+    try {
+        [Console]::CursorVisible = $false
+        while ($true) {
+            [Console]::Clear()
+            [Console]::WriteLine('Choose how to provide MSYS2 (arrows navigate; Enter selects; Esc cancels)')
+            [Console]::WriteLine('Reused MSYS2 defaults to read-only; existing packages are never upgraded automatically.')
+            [Console]::WriteLine()
+            for ($choiceIndex = 0; $choiceIndex -lt $choices.Count; $choiceIndex++) {
+                $prefix = if ($choiceIndex -eq $index) { '>' } else { ' ' }
+                [Console]::WriteLine("$prefix $($choices[$choiceIndex].Label)")
+            }
+            $key = [Console]::ReadKey($true)
+            switch ($key.Key) {
+                UpArrow { $index--; if ($index -lt 0) { $index = $choices.Count - 1 } }
+                DownArrow { $index++; if ($index -ge $choices.Count) { $index = 0 } }
+                Enter { return $choices[$index].Id }
+                Escape { return $null }
             }
         }
     } finally {

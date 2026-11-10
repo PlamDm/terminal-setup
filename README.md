@@ -27,10 +27,12 @@ folder from tools available elsewhere; missing tools are selected by default,
 except for packages unavailable in read-only MSYS2 mode.
 Yazi includes its preview helpers, WezTerm includes its private font, and
 selecting Copilot on Windows also installs its PowerShell 7 dependency. Windows
-MSYS2 Bash is shown as a required runtime. When reusing an existing MSYS2, the
-interactive flow defaults to read-only and skips tools whose packages are
-missing. Answer `n` to try installing only missing packages with the existing
-no-upgrades/no-removals protection.
+MSYS2 Bash is shown as a required runtime. Before searching for MSYS2, Windows
+offers to use/install a private copy or search for an existing one. Searching
+opens the same folder browser; choose a folder and the installer checks it and
+its subfolders. Reused MSYS2 defaults to read-only and skips tools whose
+packages are missing. Answer `n` to try installing only missing packages with
+the existing no-upgrades/no-removals protection.
 
 ## macOS and Linux
 
