@@ -142,7 +142,8 @@ For PowerShell:
 ```
 
 You can keep using your current terminal emulator, shell settings and tool
-configuration. The installer still installs its isolated copies; the extra
+configuration. The installer installs isolated copies (and reuses an existing
+Codex command in manual mode); the extra
 source files control which commands your session finds. To explicitly use a
 managed version when another version is installed, invoke its absolute launcher,
 such as `~/playground/bin/yazi`.

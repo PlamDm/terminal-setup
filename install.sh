@@ -9,6 +9,7 @@ PD_REF="7a2be2ebfa45cfc5be78e788a820ee145953f36b"
 PD_DRY_RUN=0
 PD_ONLY_CODEX=0
 PD_ACTIVATE=1
+PD_REUSE_CODEX="${PD_REUSE_CODEX:-0}"
 PD_PREVIEW_OS=""
 PD_TEMP=""
 
@@ -108,6 +109,9 @@ if [ "$PD_OS" = windows ] && [ "${PD_MSYS2_READY:-}" != 1 ]; then
     -RustifiedGitRef "$PD_REF" "${pd_windows_args[@]}"
 fi
 
+if [ "$PD_OS" != windows ] && [ "$PD_ACTIVATE" -eq 0 ] && have codex; then
+  PD_REUSE_CODEX=1
+fi
 [ "${EUID:-$(id -u)}" -ne 0 ] || die "Run from your normal user account."
 if [ "$PD_ONLY_CODEX" -ne 1 ]; then
   case "$PD_ROOT" in *[[:space:]]*) die "Homebrew/MSYS2 requires an install path without whitespace." ;; esac
@@ -165,6 +169,10 @@ install_windows_tools() {
   PD_BTOP="$(cygpath -u "$PD_BTOP_EXE")"
 }
 install_codex() {
+  if [ "$PD_REUSE_CODEX" = 1 ]; then
+    log "Keeping the existing Codex command in your terminal setup."
+    return
+  fi
   if [ "$PD_OS" = windows ]; then
     [ -x "$PD_INSTALL/codex/bin/codex.exe" ] || die "Run install.ps1 to install native Codex."
   else
@@ -172,7 +180,8 @@ install_codex() {
     pd_codex_packages
     fetch https://chatgpt.com/codex/install.sh "$PD_TEMP/codex-install.sh"
     # CODEX_HOME is deliberately scoped to this Codex installation only.
-    CODEX_HOME="$PD_ROOT/config/codex" CODEX_INSTALL_DIR="$PD_INSTALL/codex/bin" \
+    PATH="$PD_INSTALL/codex/bin:$PATH" \
+      CODEX_HOME="$PD_ROOT/config/codex" CODEX_INSTALL_DIR="$PD_INSTALL/codex/bin" \
       CODEX_NON_INTERACTIVE=1 sh "$PD_TEMP/codex-install.sh"
   fi
 }
@@ -192,8 +201,8 @@ fi
 install_codex
 if [ "$PD_OS" = windows ]; then
   : > "$PD_ROOT/state/windows-commands.tsv"
-  register_command codex "$PD_INSTALL/codex/bin/codex.exe"
-else
+  if [ "$PD_REUSE_CODEX" != 1 ]; then register_command codex "$PD_INSTALL/codex/bin/codex.exe"; fi
+elif [ "$PD_REUSE_CODEX" != 1 ]; then
   register_command codex "$PD_INSTALL/codex/bin/codex"
 fi
 if [ "$PD_ONLY_CODEX" -ne 1 ]; then
@@ -212,7 +221,7 @@ if [ "$PD_ONLY_CODEX" -ne 1 ]; then
   if [ ! -e "$PD_ROOT/config/wezterm/wezterm.lua" ]; then cp "$PD_DIR/wezterm.lua" "$PD_ROOT/config/wezterm/wezterm.lua"; fi
 fi
 if [ "$PD_ACTIVATE" -eq 1 ]; then pd_register_path; fi
-"$PD_BIN/codex" --version
+if [ "$PD_REUSE_CODEX" != 1 ]; then "$PD_BIN/codex" --version; fi
 if [ "$PD_ACTIVATE" -eq 1 ]; then
   log "Ready. Restart existing terminals/apps to inherit $PD_BIN."
 else

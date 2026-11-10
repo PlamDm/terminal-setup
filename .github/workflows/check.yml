@@ -35,6 +35,9 @@ jobs:
       - name: Preview installation without profile or persistent PATH changes
         shell: powershell
         run: .\install.ps1 -DryRun -NoActivate
+      - name: Keep delegated installer PATH changes isolated in manual mode
+        shell: powershell
+        run: .\tests\check-codex-isolation.ps1
   windows-rustifiedgit:
     runs-on: windows-latest
     steps:

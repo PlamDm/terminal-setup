@@ -126,6 +126,7 @@ function Install-Codex {
     $names = @('CODEX_HOME', 'CODEX_INSTALL_DIR', 'CODEX_NON_INTERACTIVE')
     $saved = @{}
     foreach ($name in $names) { $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
+    $previousUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     try {
         $env:CODEX_HOME = $codexHome
         $env:CODEX_INSTALL_DIR = $codexBin
@@ -134,6 +135,8 @@ function Install-Codex {
             '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $temporary
         )
     } finally {
+        # The upstream installer registers its own bin even for a custom root.
+        if ($NoActivate) { [Environment]::SetEnvironmentVariable('Path', $previousUserPath, 'User') }
         foreach ($name in $names) {
             [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process')
         }
@@ -250,7 +253,7 @@ foreach ($directory in @($installRoot, $binDirectory, $configDirectory, $cacheDi
     [IO.Directory]::CreateDirectory($directory) | Out-Null
 }
 Install-Msys2
-$environmentNames = @('MSYSTEM', 'CHERE_INVOKING', 'MSYS2_PATH_TYPE', 'PD_MSYS2_READY', 'PD_WEZTERM_EXE', 'PD_BTOP_EXE')
+$environmentNames = @('MSYSTEM', 'CHERE_INVOKING', 'MSYS2_PATH_TYPE', 'PD_MSYS2_READY', 'PD_WEZTERM_EXE', 'PD_BTOP_EXE', 'PD_REUSE_CODEX')
 $savedEnvironment = @{}
 foreach ($name in $environmentNames) { $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 try {
@@ -258,6 +261,8 @@ try {
     $env:CHERE_INVOKING = '1'
     $env:MSYS2_PATH_TYPE = 'inherit'
     $env:PD_MSYS2_READY = '1'
+    $reuseCodex = $NoActivate -and $null -ne (Get-Command codex -CommandType Application -ErrorAction SilentlyContinue)
+    $env:PD_REUSE_CODEX = if ($reuseCodex) { '1' } else { '0' }
     $bash = Join-Path $msysRoot 'usr\bin\bash.exe'
     $cygpath = Join-Path $msysRoot 'usr\bin\cygpath.exe'
     Invoke-Checked -Program $bash -Arguments @('--login', '-c', 'true')
@@ -268,7 +273,11 @@ try {
         $env:PD_BTOP_EXE = Install-ZipTool -Repo 'aristocratos/btop4win' -Pattern '^btop4win-x64\.zip$' -Name 'btop' -Executable 'btop4win.exe'
         Configure-Btop -Executable $env:PD_BTOP_EXE
     }
-    Install-Codex
+    if ($reuseCodex) {
+        Write-Host '[playground] Keeping the existing Codex command in your terminal setup.'
+    } else {
+        Install-Codex
+    }
     $unixRoot = & $cygpath -u $PlaygroundRoot
     if ($LASTEXITCODE -ne 0) { throw 'Could not translate the playground root.' }
     $unixScript = & $cygpath -u (Join-Path $PSScriptRoot 'install.sh')

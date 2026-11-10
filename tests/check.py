@@ -307,12 +307,16 @@ cp "$PD_FIXTURE_CODEX_INSTALLER" "$destination"
 """)
             codex_stub = base / "codex-installer.stub"
             executable(codex_stub, r"""#!/bin/sh
+case ":$PATH:" in
+  *":$CODEX_INSTALL_DIR:"*) ;;
+  *) printf '# delegated installer PATH hook\n' >> "$PD_USER_HOME/.zshrc" ;;
+esac
 mkdir -p "$CODEX_INSTALL_DIR"
 printf '#!/bin/sh\nprintf "codex-cli fixture\\n"\n' > "$CODEX_INSTALL_DIR/codex"
 chmod +x "$CODEX_INSTALL_DIR/codex"
 """)
             environment = dict(
-                os.environ, PATH=str(fixtures) + os.pathsep + os.environ["PATH"],
+                os.environ, PATH=str(fixtures) + os.pathsep + os.defpath,
                 PD_USER_HOME=str(user), XDG_CONFIG_HOME=str(user / ".config"),
                 PD_SKIP_DESKTOP_PATH="1", PD_FIXTURE_CODEX_INSTALLER=str(codex_stub),
             )
@@ -353,6 +357,17 @@ chmod +x "$CODEX_INSTALL_DIR/codex"
             self.assertIn("env-extra.sh", result.stdout)
             for name in ("env-extra.sh", "env-extra.fish", "env-extra.ps1"):
                 self.assertTrue((playground / "config/shell" / name).is_file())
+            executable(fixtures / "codex", "#!/bin/sh\nexit 0\n")
+            result = subprocess.run(
+                [BASH, str(ROOT / "install.sh"), "--no-activate", "--root", str(playground)],
+                env=dict(environment, PD_USER_HOME=str(manual_user),
+                         XDG_CONFIG_HOME=str(manual_user / ".config"),
+                         PD_FIXTURE_CODEX_INSTALLER=str(base / "must-not-be-downloaded")),
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("Keeping the existing Codex command", result.stdout)
+            self.assertEqual(existing_profile.read_bytes(), before[".zshrc"])
 
 
 if __name__ == "__main__":
