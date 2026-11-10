@@ -50,14 +50,15 @@ filesystem supporting junctions and hard links (normally NTFS).
 The default is `%USERPROFILE%\playground`.
 
 The default installer extracts MSYS2's official self-extracting base archive into `install/msys2`, with
-no setup registration or Start menu shortcuts. If it finds an existing MSYS2 in
-common locations (`%SystemDrive%\msys64`, `C:\msys64`, or `%USERPROFILE%\msys64`),
-through `MSYS2_ROOT`, or on `PATH`, PowerShell asks
-whether to reuse it. Answer `y` to use it without downloading another MSYS2;
+no setup registration or Start menu shortcuts. PowerShell searches conventional
+`msys64` folders on fixed drives, common Scoop locations, `MSYS2_ROOT`, and
+executables already on `PATH`. If it finds an existing MSYS2, it asks whether
+to reuse it. Answer `y` to use it without downloading another MSYS2;
 the installer adds the required packages to that installation. Answer `n` to
 keep the tools setup self-contained under the selected playground folder.
-For unattended installs, pass `-UseExistingMsys2`; use `-Msys2Root C:\msys64`
-to select a specific existing installation. The Bash entry point accepts
+For unattended installs, pass `-UseExistingMsys2` to find and reuse it
+automatically; use `-Msys2Root C:\msys64` to select a specific installation.
+The Bash entry point accepts
 `--use-existing-msys2` and `--msys2-root /c/msys64` as well. The selected path
 is saved in `config/path/msys2-root.txt` for WezTerm and generated launchers.
 Its UCRT64 packages supply Git

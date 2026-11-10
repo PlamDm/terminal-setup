@@ -121,17 +121,37 @@ function Find-SystemMsys2 {
     $candidates = @()
     if ($env:MSYS2_ROOT) { $candidates += $env:MSYS2_ROOT }
     if ($env:SystemDrive) { $candidates += (Join-Path $env:SystemDrive 'msys64') }
-    $candidates += 'C:\msys64'
-    if ($env:USERPROFILE) { $candidates += (Join-Path $env:USERPROFILE 'msys64') }
-    $pacman = Get-Command 'pacman.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-    $pacmanPath = $null
-    if ($pacman) {
-        if ($pacman.Path) { $pacmanPath = $pacman.Path }
-        elseif ($pacman.Source) { $pacmanPath = $pacman.Source }
+    if ($env:USERPROFILE) {
+        foreach ($relativePath in @(
+            'msys64', 'tools\msys64', 'scoop\apps\msys2\current',
+            'scoop\apps\msys64\current'
+        )) {
+            $candidates += (Join-Path $env:USERPROFILE $relativePath)
+        }
     }
-    if ($pacmanPath) {
-        $candidate = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $pacmanPath))
-        $candidates += $candidate
+
+    # MSYS2 has no reliable registry entry, so check its conventional folders
+    # on each fixed drive as well as executable locations already on PATH.
+    foreach ($drive in [IO.DriveInfo]::GetDrives()) {
+        if ($drive.DriveType -ne [IO.DriveType]::Fixed) { continue }
+        foreach ($relativePath in @(
+            'msys64', 'msys2', 'tools\msys64', 'tools\msys2',
+            'dev\msys64', 'apps\msys64'
+        )) {
+            $candidates += (Join-Path $drive.RootDirectory.FullName $relativePath)
+        }
+    }
+    foreach ($commandName in @('pacman.exe', 'bash.exe', 'cygpath.exe')) {
+        foreach ($command in @(Get-Command $commandName -All -ErrorAction SilentlyContinue)) {
+            $commandPath = $null
+            $pathProperty = $command.PSObject.Properties['Path']
+            $sourceProperty = $command.PSObject.Properties['Source']
+            if ($pathProperty -and $pathProperty.Value) { $commandPath = $pathProperty.Value }
+            elseif ($sourceProperty -and $sourceProperty.Value) { $commandPath = $sourceProperty.Value }
+            if ($commandPath) {
+                $candidates += (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $commandPath)))
+            }
+        }
     }
     foreach ($candidate in $candidates) {
         if ($candidate -and (Test-Msys2Installation -Path $candidate)) {
