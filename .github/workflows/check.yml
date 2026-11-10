@@ -1,0 +1,62 @@
+name: Check installers
+on: [push, pull_request, workflow_dispatch]
+
+permissions:
+  contents: read
+
+jobs:
+  bash:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Installer, launcher and PATH checks
+        run: python3 tests/check.py
+  powershell:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse PowerShell and run its preview
+        shell: powershell
+        run: |
+          $parseErrors = $null
+          $tokens = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            "$PWD/install.ps1", [ref]$tokens, [ref]$parseErrors
+          ) | Out-Null
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | Format-List
+            exit 1
+          }
+          .\install.ps1 -DryRun
+  windows-rustifiedgit:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: git mingw-w64-ucrt-x86_64-rust
+      - name: Build and run the pinned native RustifiedGit executable
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          PD_ROOT="$PWD/.ci-playground"
+          PD_INSTALL="$PD_ROOT/install"
+          PD_TEMP="$PD_ROOT/tmp"
+          PD_REPO=https://github.com/PlamDm/RustifiedGit.git
+          PD_REF="$(sed -n 's/^PD_REF="\(.*\)"/\1/p' install.sh)"
+          PD_OS=windows
+          mkdir -p "$PD_INSTALL" "$PD_TEMP" "$PD_ROOT/state"
+          log() { printf '%s\n' "$*"; }
+          die() { printf '%s\n' "$*" >&2; exit 1; }
+          . lib/rustifiedgit.sh
+          pd_install_rust() {
+            PD_CARGO=/ucrt64/bin/cargo.exe
+            PD_RUSTC=/ucrt64/bin/rustc.exe
+          }
+          install_rustifiedgit
+          "$PD_INSTALL/rustifiedgit/bin/rustifiedgit.exe" --version
