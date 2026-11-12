@@ -139,6 +139,17 @@ public class PackageFixture {
         Destination=(Join-Path $moved 'cache\async-fixture'); Sha256=$sha; Url=$url
     }))
     Assert ($output.Count -eq 0) 'Concurrent downloader leaked task results into build source paths.'
+    $failedCompletion = New-Object 'System.Threading.Tasks.TaskCompletionSource[object]'
+    $failedCompletion.SetException([InvalidOperationException]::new('fixture network failure'))
+    $failureMessage = ''
+    try {
+        Complete-PDLockedDownload ([pscustomobject]@{
+            Task=$failedCompletion.Task; Started=[DateTime]::UtcNow
+            Partial=(Join-Path $moved 'tmp\failed-async-fixture')
+            Destination=(Join-Path $moved 'cache\failed-async-fixture'); Sha256=$sha; Url=$url
+        })
+    } catch { $failureMessage = $_.Exception.Message }
+    Assert ($failureMessage.Contains('fixture network failure')) 'The concurrent downloader hid the underlying network error.'
     $badZip = Join-Path $base 'traversal.zip'
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $archive = [IO.Compression.ZipFile]::Open($badZip, [IO.Compression.ZipArchiveMode]::Create)

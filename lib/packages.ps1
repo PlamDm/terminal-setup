@@ -60,12 +60,22 @@ function Complete-PDLockedDownload {
     param([object] $Download)
     try {
         $remaining = [Math]::Max(0, 180000 - ([DateTime]::UtcNow - $Download.Started).TotalMilliseconds)
-        if (-not $Download.Task.Wait([int]$remaining)) { throw 'Download timed out after 180 seconds.' }
+        $completed = [System.Threading.Tasks.Task]::WaitAny([System.Threading.Tasks.Task[]]@($Download.Task), [int]$remaining)
+        if ($completed -lt 0) { throw 'Download timed out after 180 seconds.' }
         $Download.Task.GetAwaiter().GetResult() | Out-Null
         if ((Get-FileHash -LiteralPath $Download.Partial).Hash -ine $Download.Sha256) { throw 'SHA-256 mismatch.' }
         Move-Item -LiteralPath $Download.Partial -Destination $Download.Destination
     } catch {
-        throw "Package download failed for $($Download.Url). Windows HTTPS trust was left unchanged; supply a verified offline bundle if access is restricted. $($_.Exception.Message)"
+        $failure = $_.Exception
+        if ($failure -is [Management.Automation.MethodInvocationException] -and $failure.InnerException) {
+            $failure = $failure.InnerException
+        }
+        if ($failure -is [System.AggregateException]) {
+            $detail = ($failure.Flatten().InnerExceptions | ForEach-Object { $_.Message }) -join '; '
+        } else {
+            $detail = $failure.Message
+        }
+        throw "Package download failed for $($Download.Url). Windows HTTPS trust was left unchanged; supply a verified offline bundle if access is restricted. $detail"
     }
 }
 
