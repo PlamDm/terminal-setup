@@ -9,6 +9,18 @@ function Assert {
     if (-not $Condition) { throw $Message }
 }
 
+$originalInput = [Console]::In
+try {
+    [Console]::SetIn([IO.StringReader]::new("read-from-console`n"))
+    Assert ((Read-PDConsoleLine '') -ceq 'read-from-console') 'The interactive prompt did not read console input.'
+    [Console]::SetIn([IO.StringReader]::new(''))
+    $inputFailed = $false
+    try { Read-PDConsoleLine '' | Out-Null } catch { $inputFailed = $true }
+    Assert $inputFailed 'The interactive prompt silently accepted end-of-input.'
+} finally {
+    [Console]::SetIn($originalInput)
+}
+
 $windowsTools = @(Get-PDInteractiveCatalog -Platform 'windows')
 $unixTools = @(Get-PDInteractiveCatalog -Platform 'linux')
 Assert (@($windowsTools | Where-Object { $_.Id -eq 'notepadpp' }).Count -eq 1) 'Notepad++ is missing from the Windows menu.'

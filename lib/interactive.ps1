@@ -11,6 +11,14 @@ function Get-PDInteractiveCatalog {
     }
 }
 
+function Read-PDConsoleLine {
+    param([string] $Prompt)
+    [Console]::Write($Prompt)
+    $line = [Console]::ReadLine()
+    if ($null -eq $line) { throw 'Interactive console input ended before a response was received.' }
+    return $line
+}
+
 function Get-PDToolCommandName {
     param([string] $Id)
     switch ($Id) {
@@ -223,7 +231,7 @@ function Show-PDInstallDirectoryPicker {
                         Drive { $current = $row.Path; $index = 0 }
                         Create {
                             [Console]::CursorVisible = $true
-                            $name = Read-Host 'New directory name (letters, digits, dot, underscore or hyphen)'
+                            $name = Read-PDConsoleLine 'New directory name (letters, digits, dot, underscore or hyphen): '
                             if ($name -match '^[A-Za-z0-9._-]+$' -and $name -ne '.' -and $name -ne '..') {
                                 $newPath = Join-Path $current $name
                                 if (Test-PDInstallPath -Path $newPath) {

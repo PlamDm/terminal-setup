@@ -665,7 +665,7 @@ if ($msys2.PreserveInstalled) {
     }
 }
 if ($Interactive -and $msys2.PreserveInstalled -and -not $Msys2ReadOnly -and -not $OnlyCodex) {
-    $answer = Read-Host 'Use existing MSYS2 packages as-is and skip unavailable tools? [Y/n]'
+    $answer = Read-PDConsoleLine 'Use existing MSYS2 packages as-is and skip unavailable tools? [Y/n] '
     if ($answer -notmatch '^(?i:n|no)$') { $Msys2ReadOnly = $true }
 }
 if ($Interactive -and -not $OnlyCodex) {
