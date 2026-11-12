@@ -14,6 +14,9 @@ $headers = @{ 'User-Agent' = 'terminal-setup-test'; 'Accept' = 'application/vnd.
 $Interactive = $false
 $OnlyCodex = $false
 $selectedTools = @()
+$PackageDirectory = ''
+$Offline = $false
+. (Join-Path $PSScriptRoot '..\lib\packages.ps1')
 if ($env:GITHUB_TOKEN) { $headers.Authorization = 'Bearer ' + $env:GITHUB_TOKEN }
 $previousUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 $savedEnvironment = @{}
@@ -37,8 +40,6 @@ try {
         [IO.Directory]::CreateDirectory($directory) | Out-Null
     }
     . (Join-Path $PSScriptRoot '..\lib\portable.ps1')
-    Install-Msys2
-    Invoke-Checked -Program (Join-Path $msysRoot 'usr\bin\bash.exe') -Arguments @('--login', '-c', 'true')
     Install-PortableWindowsTools
     $btop = Install-ZipTool -Repo 'aristocratos/btop4win' -Pattern '^btop4win-x64\.zip$' -Name 'btop' -Executable 'btop4win.exe'
     Configure-Btop -Executable $btop
@@ -53,11 +54,11 @@ try {
     }
     Invoke-Checked -Program (Join-Path $binDirectory 'pwsh.cmd') -Arguments @('-NoProfile', '-Command', '$PSVersionTable.PSVersion.ToString()')
     $notepadLauncher = [IO.File]::ReadAllText((Join-Path $binDirectory 'notepad++.cmd'))
-    if (-not $notepadLauncher.Contains('-multiInst -settingsDir="' + $configDirectory + '\notepad++"')) {
+    if (-not $notepadLauncher.Contains('-multiInst -settingsDir="%PD_ROOT%\config\notepad++"')) {
         throw 'Notepad++ launcher did not isolate its settings and instance.'
     }
-    $portableData = Get-Item -LiteralPath (Join-Path (Split-Path -Parent $env:PD_CODE_EXE) 'data')
-    if (-not ($portableData.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'VS Code data junction was not created.' }
+    $codeLauncher = [IO.File]::ReadAllText((Join-Path $binDirectory 'code.cmd'))
+    if (-not $codeLauncher.Contains('set "VSCODE_PORTABLE=%PD_ROOT%\config\vscode"')) { throw 'VS Code portable data is not relocatable.' }
     if ([Environment]::GetEnvironmentVariable('Path', 'User') -cne $previousUserPath) { throw 'Portable installs changed persistent PATH.' }
     Write-Host 'Native portable tools and their launchers passed.'
 } finally {

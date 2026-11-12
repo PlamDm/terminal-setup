@@ -22,13 +22,28 @@ def executable(path, source):
     path.write_text(source)
     path.chmod(0o755)
 
+def shell_path(path):
+    value = str(path)
+    if os.name == "nt":
+        if len(value) >= 3 and value[0] == "/" and value[1].isalpha() and value[2] == "/":
+            return value
+        value = Path(path).resolve().as_posix()
+        return "/" + value[0].lower() + value[2:]
+    return value
+
+
+def launcher_command(path, *args):
+    if os.name == "nt":
+        return [BASH, shell_path(path), *args]
+    return [str(path), *args]
+
 
 class PlaygroundChecks(unittest.TestCase):
     def test_shell_syntax(self):
         for shell in {BASH, "/bin/bash"}:
             if Path(shell).is_file():
                 for script in ("install.sh", "lib/environment.sh", "lib/rustifiedgit.sh", "lib/portable.sh",
-                               "lib/yazi.sh", "lib/msys2.sh", "lib/interactive.sh"):
+                               "lib/yazi.sh", "lib/msys2.sh", "lib/interactive.sh", "lib/packages.sh", "lib/unix.sh"):
                     subprocess.run([shell, "-n", str(ROOT / script)], check=True)
 
     def test_interactive_catalog_and_selected_msys2_packages(self):
@@ -60,7 +75,7 @@ class PlaygroundChecks(unittest.TestCase):
                 '. "$2/lib/msys2.sh"\n'
                 'pd_install_msys2_packages\n'
             )
-            subprocess.run([BASH, "-c", script, "fixture", str(msys), str(ROOT)], check=True)
+            subprocess.run([BASH, "-c", script, "fixture", shell_path(msys), shell_path(ROOT)], check=True)
             packages = log.read_text().splitlines()
             self.assertEqual(packages[:3], ["-S", "--needed", "--noconfirm"])
             self.assertIn("bash", packages)
@@ -82,13 +97,23 @@ class PlaygroundChecks(unittest.TestCase):
             for platform in ("macos", "linux", "windows"):
                 result = subprocess.run(
                     [BASH, str(ROOT / "install.sh"), "--dry-run", "--interactive", "--platform", platform,
-                     "--root", str(base / "must-not-exist")],
+                     "--root", shell_path(base / "must-not-exist")],
                     env=environment, capture_output=True, text=True,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
-                for name in ("Codex", "btop", "fzf", "Copilot", "VS Code", "Nerd Font", "/install", "/config", "/bin"):
-                    self.assertIn(name, result.stdout)
-                self.assertIn("PlamDm/RustifiedGit.git", result.stdout)
+                self.assertIn("Interactive selection is required", result.stdout)
+                self.assertIn("/install", result.stdout)
+                self.assertIn("/config", result.stdout)
+                self.assertIn("/bin", result.stdout)
+                self.assertFalse(marker.exists())
+                self.assertFalse((base / "must-not-exist").exists())
+                selected = subprocess.run(
+                    [BASH, str(ROOT / "install.sh"), "--dry-run", "--platform", platform,
+                     "--tools", "bash,tmux,yazi,fzf,codex", "--root", shell_path(base / "must-not-exist")],
+                    env=environment, capture_output=True, text=True,
+                )
+                self.assertEqual(selected.returncode, 0, selected.stderr)
+                self.assertIn("Selected tools: bash,tmux,yazi,fzf,codex", selected.stdout)
                 self.assertFalse(marker.exists())
                 self.assertFalse((base / "must-not-exist").exists())
 
@@ -106,7 +131,7 @@ class PlaygroundChecks(unittest.TestCase):
             [BASH, str(ROOT / "install.sh"), "--dry-run", "--platform", "windows", "--msys2-read-only"],
             capture_output=True, text=True, check=True,
         )
-        self.assertIn("Use --msys2-read-only to use installed MSYS2 packages only", result.stdout)
+        self.assertIn("Read-only reuse fails explicitly", result.stdout)
         invalid = subprocess.run(
             [BASH, str(ROOT / "install.sh"), "--dry-run", "--platform", "linux", "--msys2-read-only"],
             capture_output=True, text=True,
@@ -117,16 +142,16 @@ class PlaygroundChecks(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="terminal-preview-") as directory:
             target = Path(directory) / "not-installed"
             result = subprocess.run([BASH, str(ROOT / "install.sh"), "--dry-run", "--no-activate",
-                                     "--root", str(target)], capture_output=True, text=True, check=True)
+                                     "--root", shell_path(target)], capture_output=True, text=True, check=True)
             self.assertIn("Leave profiles and persistent PATH unchanged", result.stdout)
-            self.assertNotIn("Register " + str(target), result.stdout)
+            self.assertNotIn("Register " + shell_path(target), result.stdout)
             self.assertFalse(target.exists())
 
     def test_default_is_source_only_and_registration_is_explicit(self):
         result = subprocess.check_output([BASH, str(ROOT / "install.sh"), "--dry-run"], text=True)
         self.assertIn("Leave profiles and persistent PATH unchanged", result)
         activated = subprocess.check_output([BASH, str(ROOT / "install.sh"), "--dry-run", "--activate"], text=True)
-        self.assertIn("Register ", activated)
+        self.assertIn("Opt in to registering ", activated)
 
     def test_invalid_arguments_fail(self):
         for arguments in (
@@ -144,7 +169,7 @@ class PlaygroundChecks(unittest.TestCase):
             self.assertNotRegex(ROOT.joinpath(name).read_text().lower(), r"\bwsl(?:\.exe)?\b")
 
     def test_environment_and_launchers_handle_spaces_and_quotes(self):
-        with tempfile.TemporaryDirectory(prefix="pd-check-") as directory:
+        with tempfile.TemporaryDirectory(prefix=".check-environment-", dir=ROOT) as directory:
             base = Path(directory)
             playground = base / "play ground's"
             user = base / "user"
@@ -164,35 +189,43 @@ pd_write_launcher codex "$PD_ROOT/install/mock/bin/codex"
 pd_register_path
 pd_register_path
 """
-            environment = dict(os.environ, XDG_CONFIG_HOME=str(user / ".config"))
-            subprocess.run([BASH, "-c", script, "check", str(playground), str(user), str(ROOT)],
+            environment = dict(os.environ, XDG_CONFIG_HOME=shell_path(user / ".config"))
+            subprocess.run([BASH, "-c", script, "check", shell_path(playground), shell_path(user), shell_path(ROOT)],
                            env=environment, check=True)
             for name in (".bashrc", ".bash_profile", ".profile", ".zshrc", ".zprofile"):
                 content = (user / name).read_text()
                 self.assertEqual(content.count("# >>> pd-playground PATH >>>"), 1)
             argument = "one argument; $(must-not-run)"
-            result = subprocess.run([str(playground / "bin/codex"), argument],
+            result = subprocess.run(launcher_command(playground / "bin/codex", argument),
                                     env=environment, check=True, capture_output=True, text=True)
+            codex_home = (playground / "config/codex").as_posix() if os.name == "nt" else str(playground / "config/codex")
             self.assertEqual(result.stdout.splitlines(),
-                             [str(playground / "config/codex"), argument])
+                             [codex_home, argument])
             if shutil.which("zsh"):
-                probe = '. ' + shlex.quote(str(playground / "config/shell/env.sh")) + '; command -v codex'
+                probe = '. ' + shlex.quote(shell_path(playground / "config/shell/env.sh")) + '; command -v codex'
                 result = subprocess.run(["zsh", "-f", "-c", probe],
                                         check=True, capture_output=True, text=True)
-                self.assertEqual(result.stdout.strip(), str(playground / "bin/codex"))
+                self.assertEqual(result.stdout.strip(), shell_path(playground / "bin/codex"))
 
     def test_refuses_launcher_target_outside_playground(self):
-        with tempfile.TemporaryDirectory(prefix="pd-check-") as directory:
+        with tempfile.TemporaryDirectory(prefix=".check-launcher-", dir=ROOT) as directory:
             script = 'die() { exit 9; }; PD_ROOT=$1; . "$2/lib/environment.sh"; pd_write_launcher codex /usr/bin/codex'
-            result = subprocess.run([BASH, "-c", script, "check", directory, str(ROOT)])
+            result = subprocess.run([BASH, "-c", script, "check", shell_path(directory), shell_path(ROOT)])
             self.assertEqual(result.returncode, 9)
 
     def test_ai_editor_and_yazi_launchers_isolate_data_and_preserve_arguments(self):
+        if os.name == "nt":
+            self.skipTest("Git Bash does not model native Unix process and path semantics.")
         with tempfile.TemporaryDirectory(prefix="terminal-apps-") as directory:
             playground = Path(directory) / "tool root's"
             for name in ("copilot", "code", "yazi", "git"):
-                executable(playground / "install/fixture" / name,
-                    '#!' + sys.executable + '\nimport json,os,sys\nprint(json.dumps({"env":dict(os.environ),"args":sys.argv[1:]}))\n')
+                target = playground / "install/fixture" / name
+                source = 'import json,os,sys; print(json.dumps({"env":dict(os.environ),"args":sys.argv[1:]}))'
+                if os.name == "nt":
+                    executable(target, "#!/bin/sh\nexec " + shlex.quote(shell_path(sys.executable)) +
+                               " -c " + shlex.quote(source) + ' "$@"\n')
+                else:
+                    executable(target, '#!' + sys.executable + '\n' + source.replace("; ", "\n") + "\n")
             generate = '''
 set -eu
 PD_ROOT=$1
@@ -202,27 +235,36 @@ mkdir -p "$PD_ROOT/bin"
 pd_write_environment
 for name in copilot code yazi git; do pd_write_launcher "$name" "$PD_ROOT/install/fixture/$name"; done
 '''
-            subprocess.run([BASH, "-c", generate, "check", str(playground), str(ROOT)], check=True)
+            subprocess.run([BASH, "-c", generate, "check", shell_path(playground), shell_path(ROOT)], check=True)
             argument = "file's name; $(must-not-run).txt"
             for name in ("copilot", "code", "yazi", "git"):
-                actual = json.loads(subprocess.check_output([str(playground / "bin" / name), argument], text=True))
+                actual = json.loads(subprocess.check_output(
+                    launcher_command(playground / "bin" / name, argument), text=True))
                 self.assertEqual(actual["args"][-1], argument)
                 for variable, relative in (("XDG_CONFIG_HOME", "config"), ("XDG_CACHE_HOME", "cache"),
-                    ("XDG_STATE_HOME", "state"), ("TMPDIR", "tmp"), ("GIT_CONFIG_GLOBAL", "config/git/config")):
-                    self.assertEqual(actual["env"][variable], str(playground / relative))
+                    ("XDG_STATE_HOME", "state"), ("TMPDIR", "tmp")):
+                    if name == "git":
+                        self.assertEqual(actual["env"].get(variable), os.environ.get(variable))
+                    else:
+                        self.assertEqual(shell_path(actual["env"][variable]), shell_path(playground / relative))
+                self.assertEqual(actual["env"].get("GIT_CONFIG_GLOBAL"), os.environ.get("GIT_CONFIG_GLOBAL"))
+                self.assertFalse((playground / "config/git").exists())
                 if name == "copilot":
-                    self.assertEqual(actual["env"]["COPILOT_HOME"], str(playground / "config/copilot"))
-                    self.assertEqual(actual["env"]["COPILOT_CACHE_HOME"], str(playground / "cache/copilot"))
+                    self.assertEqual(shell_path(actual["env"]["COPILOT_HOME"]), shell_path(playground / "config/copilot"))
+                    self.assertEqual(shell_path(actual["env"]["COPILOT_CACHE_HOME"]), shell_path(playground / "cache/copilot"))
                     self.assertEqual(actual["env"]["COPILOT_AUTO_UPDATE"], "false")
                 if name == "code":
-                    self.assertEqual(actual["env"]["VSCODE_PORTABLE"], str(playground / "config/vscode"))
-                    self.assertEqual(actual["args"][:-1], ["--user-data-dir", str(playground / "config/vscode/user-data"),
-                        "--extensions-dir", str(playground / "config/vscode/extensions")])
+                    self.assertEqual(shell_path(actual["env"]["VSCODE_PORTABLE"]), shell_path(playground / "config/vscode"))
+                    self.assertEqual(actual["args"][0], "--user-data-dir")
+                    self.assertEqual(actual["args"][2], "--extensions-dir")
+                    self.assertEqual(shell_path(actual["args"][1]), shell_path(playground / "config/vscode/user-data"))
+                    self.assertEqual(shell_path(actual["args"][3]), shell_path(playground / "config/vscode/extensions"))
                 if name == "yazi":
-                    self.assertEqual(actual["env"]["YAZI_CONFIG_HOME"], str(playground / "config/yazi"))
+                    self.assertEqual(shell_path(actual["env"]["YAZI_CONFIG_HOME"]),
+                                     shell_path(playground / "config/yazi"))
 
     def test_rustifiedgit_launcher_selects_its_config_and_preserves_arguments(self):
-        with tempfile.TemporaryDirectory(prefix="terminal-launcher-") as directory:
+        with tempfile.TemporaryDirectory(prefix=".check-rustifiedgit-launcher-", dir=ROOT) as directory:
             playground = Path(directory) / "play ground's"
             user = Path(directory) / "user"
             executable(playground / "install/rustifiedgit/bin/rustifiedgit",
@@ -236,13 +278,13 @@ mkdir -p "$PD_ROOT/bin"
 pd_write_environment
 pd_write_launcher rustifiedgit "$PD_ROOT/install/rustifiedgit/bin/rustifiedgit"
 '''
-            subprocess.run([BASH, "-c", script, "check", str(playground), str(ROOT)], check=True)
+            subprocess.run([BASH, "-c", script, "check", shell_path(playground), shell_path(ROOT)], check=True)
             argument = "repo's directory; $(must-not-run)"
-            output = subprocess.check_output([str(playground / "bin/rustifiedgit"), "-p", argument], text=True)
-            self.assertEqual(output.splitlines(), ["--use-config-dir", str(playground / "config/rustifiedgit"), "-p", argument])
+            output = subprocess.check_output(launcher_command(playground / "bin/rustifiedgit", "-p", argument), text=True)
+            self.assertEqual(output.splitlines(), ["--use-config-dir", shell_path(playground / "config/rustifiedgit"), "-p", argument])
 
     def test_extra_activation_keeps_existing_commands_first_and_is_idempotent(self):
-        with tempfile.TemporaryDirectory(prefix="terminal-extra-") as directory:
+        with tempfile.TemporaryDirectory(prefix=".check-extra-activation-", dir=ROOT) as directory:
             base = Path(directory)
             playground = base / "play ground's"
             existing = base / "existing"
@@ -250,25 +292,237 @@ pd_write_launcher rustifiedgit "$PD_ROOT/install/rustifiedgit/bin/rustifiedgit"
             executable(playground / "bin/yazi", "#!/bin/sh\nexit 0\n")
             executable(playground / "bin/terminal-extra-fixture", "#!/bin/sh\nexit 0\n")
             generate = 'set -eu; PD_ROOT=$1; . "$2/lib/environment.sh"; pd_write_environment'
-            subprocess.run([BASH, "-c", generate, "check", str(playground), str(ROOT)], check=True)
+            subprocess.run([BASH, "-c", generate, "check", shell_path(playground), shell_path(ROOT)], check=True)
             probe = '. "$1"; . "$1"; command -v yazi; command -v terminal-extra-fixture; printf "%s\\n" "$PATH"'
             environment = dict(os.environ, PATH=str(existing) + os.pathsep + str(playground / "bin") + os.pathsep + os.environ["PATH"])
             shells = {BASH, "/bin/bash"}
             if shutil.which("zsh"):
                 shells.add(shutil.which("zsh"))
             for shell in shells:
-                result = subprocess.check_output([shell, "-c", probe, "check", str(playground / "config/shell/env-extra.sh")],
+                if not Path(shell).is_file():
+                    continue
+                result = subprocess.check_output([shell, "-c", probe, "check", shell_path(playground / "config/shell/env-extra.sh")],
                                                  env=environment, text=True).splitlines()
-                self.assertEqual(result[0], str(existing / "yazi"))
-                self.assertEqual(result[1], str(playground / "bin/terminal-extra-fixture"))
-                entries = result[2].split(os.pathsep)
-                self.assertEqual(entries[-1], str(playground / "bin"))
-                self.assertEqual(entries.count(str(playground / "bin")), 1)
+                self.assertEqual(result[0], shell_path(existing / "yazi"))
+                self.assertEqual(result[1], shell_path(playground / "bin/terminal-extra-fixture"))
+                entries = result[2].split(":")
+                self.assertEqual(entries[-1], shell_path(playground / "bin"))
+                self.assertEqual(entries.count(shell_path(playground / "bin")), 1)
             powershell = shutil.which("pwsh")
             if powershell:
                 subprocess.run([powershell, "-NoProfile", "-File", str(ROOT / "tests/check-activation.ps1"),
                                 "-ActivationFile", str(playground / "config/shell/env-extra.ps1"),
                                 "-ExpectedDirectory", str(playground / "bin")], check=True)
+
+    @unittest.skipUnless(shutil.which("tmux"), "tmux is unavailable")
+    def test_tmux_template_keeps_system_shell_unless_managed_bash_exists(self):
+        with tempfile.TemporaryDirectory(prefix=".check-tmux-shell-", dir=ROOT) as directory:
+            playground = Path(directory) / "root space's"
+            generate = 'set -eu; PD_ROOT=$1; . "$2/lib/environment.sh"; pd_write_environment'
+            subprocess.run([BASH, "-c", generate, "check", shell_path(playground), shell_path(ROOT)], check=True)
+            environment = dict(os.environ, PD_PLAYGROUND_ROOT=shell_path(playground),
+                               HOME=shell_path(playground / "state/home"), BASH_ENV="", ENV="")
+            environment.pop("TMUX", None)
+            for managed_bash in (False, True):
+                with self.subTest(managed_bash=managed_bash):
+                    if managed_bash:
+                        executable(playground / "bin/bash", "#!/bin/sh\nexec " + shlex.quote(shell_path(BASH)) + ' "$@"\n')
+                    command = [shutil.which("tmux"), "-S", str(Path(directory) / ("s1" if managed_bash else "s0"))]
+                    try:
+                        subprocess.run([*command, "-f", os.devnull, "new-session", "-d", "-s", "fixture", "sleep 60"],
+                                       env=environment, check=True, capture_output=True, text=True, timeout=10)
+                        baseline = subprocess.check_output([*command, "show-options", "-gqv", "default-shell"],
+                                                           env=environment, text=True, timeout=10).strip()
+                        subprocess.run([*command, "source-file", str(playground / "config/tmux/tmux.conf")],
+                                       env=environment, check=True, capture_output=True, text=True, timeout=10)
+                        chosen = subprocess.check_output([*command, "show-options", "-gqv", "default-shell"],
+                                                         env=environment, text=True, timeout=10).strip()
+                        self.assertEqual(chosen, shell_path(playground / "bin/bash") if managed_bash else baseline)
+                    finally:
+                        subprocess.run([*command, "kill-server"], env=environment,
+                                       capture_output=True, timeout=10)
+
+    @unittest.skipUnless(shutil.which("lua") or shutil.which("luajit"), "Lua runtime is unavailable")
+    def test_wezterm_template_uses_default_shell_unless_managed_bash_exists(self):
+        with tempfile.TemporaryDirectory(prefix=".check-wezterm-shell-", dir=ROOT) as directory:
+            playground = Path(directory) / "root space's"
+            config_file = playground / "config/wezterm/wezterm.lua"
+            config_file.parent.mkdir(parents=True)
+            shutil.copyfile(ROOT / "wezterm.lua", config_file)
+            probe = Path(directory) / "probe.lua"
+            probe.write_text("""
+package.preload.wezterm = function()
+  return {
+    config_file = arg[1],
+    target_triple = 'x86_64-unknown-linux-gnu',
+    font = function(name) return name end,
+  }
+end
+local config = dofile(arg[1])
+assert(config.default_cwd == arg[2])
+if arg[3] == 'managed' then
+  assert(config.default_prog[1] == arg[2] .. '/bin/bash')
+  assert(config.default_prog[2] == '-i')
+else
+  assert(config.default_prog == nil)
+end
+""")
+            for managed_bash in (False, True):
+                with self.subTest(managed_bash=managed_bash):
+                    if managed_bash:
+                        executable(playground / "bin/bash", "#!/bin/sh\nexit 0\n")
+                    subprocess.run([shutil.which("lua") or shutil.which("luajit"), str(probe),
+                                    config_file.as_posix(), playground.as_posix(),
+                                    "managed" if managed_bash else "default"],
+                                   check=True, capture_output=True, text=True, timeout=10)
+
+    def test_folder_relocation_preserves_templates_activation_and_launcher_arguments(self):
+        with tempfile.TemporaryDirectory(prefix=".check-relocation-", dir=ROOT) as directory:
+            base = Path(directory)
+            playground = base / "original root's"
+            moved = base / "moved root's"
+            existing = base / "existing"
+            executable(existing / "codex", "#!/bin/sh\nexit 0\n")
+            executable(playground / "bin/terminal-relocation-fixture", "#!/bin/sh\nexit 0\n")
+            executable(playground / "install/fixture/bin/codex",
+                       '#!/bin/sh\nprintf "%s\\n" "$CODEX_HOME" "$@"\n')
+            executable(playground / "install/fixture/bin/bash",
+                       "#!/bin/sh\nexec " + shlex.quote(shell_path(BASH)) + ' "$@"\n')
+            executable(playground / "install/fixture/bin/git",
+                       '#!/bin/sh\nprintf "%s\\n" "${HOME-}" "${XDG_CONFIG_HOME-}" "${GIT_CONFIG_GLOBAL-}" "$@"\n')
+            executable(playground / "lib/relocate.sh",
+                       '#!/bin/bash\nprintf "%s\\n" "$1" >> "$1/state/relocations"\n')
+            generate = """
+set -eu
+die() { printf '%s\\n' "$*" >&2; exit 1; }
+PD_ROOT=$1
+PD_OS=macos
+. "$2/lib/environment.sh"
+pd_write_environment
+for name in codex bash git; do pd_write_launcher "$name" "$PD_ROOT/install/fixture/bin/$name"; done
+"""
+            subprocess.run([BASH, "-c", generate, "check", shell_path(playground), shell_path(ROOT)], check=True)
+            template = playground / "templates/yazi/yazi.toml"
+            template.write_text(template.read_text() + "\n# customized template\n")
+            yazi_config = playground / "config/yazi/yazi.toml"
+            yazi_config.unlink()
+            wezterm_config = playground / "config/wezterm/wezterm.lua"
+            wezterm_config.write_text(wezterm_config.read_text() + "\n-- customized config\n")
+            bashrc = playground / "config/bash/bashrc"
+            bashrc.write_text(bashrc.read_text() + "\n# customized bashrc\n")
+            before = {path.relative_to(playground): path.read_bytes()
+                      for path in (template, wezterm_config, bashrc)}
+            subprocess.run([BASH, "-c", generate, "check", shell_path(playground), shell_path(ROOT)], check=True)
+            self.assertIn("# customized template", yazi_config.read_text())
+            for relative, content in before.items():
+                self.assertEqual((playground / relative).read_bytes(), content)
+            self.assertFalse((playground / "config/git").exists())
+            for relative in ("activate.sh", "config/shell/env.sh", "config/shell/env-extra.sh",
+                             "config/shell/env-extra.ps1", "config/shell/env.fish",
+                             "config/bash/bashrc", "config/tmux/tmux.conf", "bin/codex"):
+                self.assertNotIn(shell_path(playground), (playground / relative).read_text())
+            shutil.move(str(playground), str(moved))
+            for relative, content in before.items():
+                self.assertEqual((moved / relative).read_bytes(), content)
+            argument = 'file\'s name "double quote"; $(must-not-run)'
+            output = subprocess.check_output(launcher_command(moved / "bin/codex", argument), text=True)
+            codex_home = (moved / "config/codex").as_posix() if os.name == "nt" else str(moved / "config/codex")
+            self.assertEqual(output.splitlines(), [codex_home, argument])
+            self.assertEqual((moved / "state/relocations").read_text().strip(), shell_path(moved))
+            history = subprocess.check_output(launcher_command(moved / "bin/bash", "-c", 'printf "%s\\n" "$HISTFILE"'), text=True)
+            self.assertEqual(history.strip(), shell_path(moved / "state/bash/history"))
+            environment = dict(os.environ, HOME=shell_path(base / "user"),
+                               XDG_CONFIG_HOME=shell_path(base / "user-config"),
+                               GIT_CONFIG_GLOBAL=shell_path(base / "user-git"),
+                               PD_PLAYGROUND_ROOT=shell_path(playground),
+                               PATH=str(existing) + os.pathsep + os.environ["PATH"])
+            output = subprocess.check_output(launcher_command(moved / "bin/git", argument),
+                                             env=environment, text=True).splitlines()
+            self.assertEqual(output, [environment["HOME"], environment["XDG_CONFIG_HOME"],
+                                      environment["GIT_CONFIG_GLOBAL"], argument])
+            probe = """
+. "$1" || exit
+. "$1" || exit
+command -v codex
+command -v terminal-relocation-fixture
+printf '%s\\n' "$PD_PLAYGROUND_ROOT" "$HOME" "$XDG_CONFIG_HOME" "$GIT_CONFIG_GLOBAL"
+"""
+            shells = {BASH}
+            if shutil.which("zsh"):
+                shells.add(shutil.which("zsh"))
+            for shell in shells:
+                for relative in ("activate.sh", "config/shell/env-extra.sh"):
+                    output = subprocess.check_output(
+                        [shell, "-c", probe, "check", shell_path(moved / relative)],
+                        env=environment, text=True).splitlines()
+                    self.assertEqual(output, [shell_path(existing / "codex"),
+                                              shell_path(moved / "bin/terminal-relocation-fixture"), shell_path(moved),
+                                              environment["HOME"], environment["XDG_CONFIG_HOME"],
+                                              environment["GIT_CONFIG_GLOBAL"]])
+            powershell = shutil.which("pwsh") or shutil.which("powershell")
+            if powershell:
+                subprocess.run([powershell, "-NoProfile", "-File", str(ROOT / "tests/check-activation.ps1"),
+                                "-ActivationFile", str(moved / "config/shell/env-extra.ps1"),
+                                "-ExpectedDirectory", str(moved / "bin")], check=True)
+            executable(moved / "lib/relocate.sh", "#!/bin/bash\nexit 23\n")
+            failed = subprocess.run(launcher_command(moved / "bin/codex", argument),
+                                    capture_output=True, text=True)
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertEqual(failed.stdout, "")
+
+    def test_posix_activation_requires_an_explicit_resolvable_root(self):
+        with tempfile.TemporaryDirectory(prefix=".check-posix-", dir=ROOT) as directory:
+            playground = Path(directory) / "root space's"
+            generate = 'PD_ROOT=$1; . "$2/lib/environment.sh"; pd_write_environment'
+            subprocess.run([BASH, "-c", generate, "check", shell_path(playground), shell_path(ROOT)], check=True)
+            posix = shutil.which("dash")
+            prefix = "" if posix else "unset BASH_VERSION ZSH_VERSION; "
+            shell = [posix] if posix else [BASH, "--posix"]
+            source = prefix + '. "$1"'
+            for root in ("", shell_path(playground / "missing")):
+                result = subprocess.run([*shell, "-c", source, "check",
+                                         shell_path(playground / "config/shell/env-extra.sh")],
+                                        env=dict(os.environ, PD_PLAYGROUND_ROOT=root), capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("terminal-setup:", result.stderr)
+            output = subprocess.check_output(
+                [*shell, "-c", source + '; printf "%s\\n" "$PD_PLAYGROUND_ROOT"', "check",
+                 shell_path(playground / "config/shell/env-extra.sh")],
+                env=dict(os.environ, PD_PLAYGROUND_ROOT=shell_path(playground)), text=True)
+            self.assertEqual(output.strip(), shell_path(playground))
+
+    def test_windows_shell_launchers_relocate_private_msys2_but_keep_external_msys2(self):
+        with tempfile.TemporaryDirectory(prefix=".check-msys-relocation-", dir=ROOT) as directory:
+            base = Path(directory)
+            for external in (False, True):
+                with self.subTest(external=external):
+                    playground = base / ("external tools root" if external else "private tools root")
+                    moved = base / ("moved external tools root" if external else "moved private tools root")
+                    msys2 = base / "reused-msys2" if external else playground / "install/msys2"
+                    executable(msys2 / "usr/bin/fixture.exe",
+                               '#!/bin/sh\nprintf "%s\\n" "$PD_PLAYGROUND_MSYS2_ROOT" "$@"\n')
+                    generate = """
+set -eu
+die() { printf '%s\\n' "$*" >&2; exit 1; }
+PD_ROOT=$1
+PD_MSYS2_ROOT=$2
+PD_OS=windows
+if ! command -v cygpath >/dev/null 2>&1; then cygpath() { printf '%s\\n' "$2"; }; fi
+. "$3/lib/environment.sh"
+pd_write_environment
+pd_write_launcher fixture "$PD_MSYS2_ROOT/usr/bin/fixture.exe"
+"""
+                    subprocess.run([BASH, "-c", generate, "check", shell_path(playground),
+                                    shell_path(msys2), shell_path(ROOT)], check=True)
+                    marker = (playground / "config/path/msys2-root.txt").read_text().strip()
+                    expected = (msys2.as_posix() if os.name == "nt" else str(msys2)) if external else "install/msys2"
+                    self.assertEqual(marker, expected)
+                    self.assertNotIn(shell_path(playground), (playground / "bin/fixture").read_text())
+                    shutil.move(str(playground), str(moved))
+                    output = subprocess.check_output(launcher_command(moved / "bin/fixture", "one argument"),
+                                                     text=True).splitlines()
+                    runtime = msys2 if external else moved / "install/msys2"
+                    self.assertEqual(output, [shell_path(runtime), "one argument"])
 
     def test_rustifiedgit_build_cache_and_failed_update_keep_the_previous_binary(self):
         with tempfile.TemporaryDirectory(prefix="terminal-build-") as directory:
@@ -321,7 +575,8 @@ install_rustifiedgit
             def install(ref, fail=False):
                 # Each real installation gets a fresh temporary source checkout.
                 shutil.rmtree(playground / "tmp", ignore_errors=True)
-                return subprocess.run([BASH, "-c", script, "check", str(playground), str(source), ref, str(ROOT)],
+                return subprocess.run([BASH, "-c", script, "check", shell_path(playground), shell_path(source),
+                                       ref, shell_path(ROOT)],
                                       env=dict(environment, PD_TEST_BUILD_FAIL=str(int(fail))), capture_output=True, text=True)
 
             result = install(first)
@@ -331,8 +586,8 @@ install_rustifiedgit
             build_calls = playground / "state/build-calls"
             calls = build_calls.read_text()
             self.assertIn("build --release --locked --target-dir", calls)
-            self.assertIn(str(playground / "cache/cargo"), calls)
-            self.assertIn(str(playground / "install/rustup"), calls)
+            self.assertIn(shell_path(playground / "cache/cargo"), calls)
+            self.assertIn(shell_path(playground / "install/rustup"), calls)
             for ref in (first, "main"):
                 result = install(ref)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -345,6 +600,8 @@ install_rustifiedgit
             self.assertEqual((playground / "state/rustifiedgit.commit").read_text().strip(), first)
 
     def test_codex_packages_are_moved_into_install_and_relinked(self):
+        if os.name == "nt":
+            self.skipTest("Git Bash does not model Unix directory symlink semantics.")
         with tempfile.TemporaryDirectory(prefix="pd-check-") as directory:
             playground = Path(directory) / "playground"
             payload = playground / "config/codex/packages/standalone/payload"
@@ -358,174 +615,16 @@ PD_ROOT=$1
 pd_codex_packages
 pd_codex_packages
 '''
-            subprocess.run([BASH, "-c", script, "check", str(playground), str(ROOT)], check=True)
+            subprocess.run([BASH, "-c", script, "check", shell_path(playground), shell_path(ROOT)], check=True)
             moved = playground / "install/codex/packages/standalone/payload"
             self.assertEqual(moved.read_text(), "existing package")
             self.assertEqual(payload.resolve(), moved.resolve())
             self.assertTrue((playground / "config/codex/packages").is_symlink())
 
     def test_full_flow_uses_only_rooted_fixture_installers(self):
-        with tempfile.TemporaryDirectory(prefix="pd-check-") as directory:
-            base = Path(directory)
-            playground = base / "playground"
-            user = base / "user"
-            fixtures = base / "fixtures"
-            fixtures.mkdir()
-            (playground / "Projects").mkdir(parents=True)
-            sentinel = playground / "Projects/keep.txt"
-            sentinel.write_text("keep my project\n")
-            (user / ".config").mkdir(parents=True)
-            (user / ".zshrc").write_text("# existing customization\n")
-            (playground / "state").mkdir()
-            (playground / "state/rustifiedgit.commit").write_text(
-                "7a2be2ebfa45cfc5be78e788a820ee145953f36b\n")
-            executable(playground / "install/rustifiedgit/bin/rustifiedgit", "#!/bin/sh\nexit 0\n")
-            fake_brew = r"""#!/bin/sh
-prefix="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
-root="$(CDPATH= cd -- "$prefix/../.." && pwd)"
-if [ "$1" = --prefix ]; then printf '%s\n' "$prefix"; exit 0; fi
-printf '%s\n' "$*" >> "$root/state/brew-calls"
-for name in bash tmux yazi ya git file btop fzf ffmpeg ffprobe 7zz pdftoppm pdftotext pdfinfo fd rg zoxide resvg magick; do
-  printf '#!/bin/sh\nexit 0\n' > "$prefix/bin/$name"
-  chmod +x "$prefix/bin/$name"
-done
-app="$root/install/apps/WezTerm.app/Contents/MacOS"
-mkdir -p "$app"
-printf '#!/bin/sh\nexit 0\n' > "$app/wezterm"
-chmod +x "$app/wezterm"
-"""
-            executable(playground / "install/homebrew/bin/brew", fake_brew)
-            executable(fixtures / "brew", "#!/bin/sh\nexit 91\n")
-            executable(fixtures / "git", "#!/bin/sh\nexit 92\n")
-            executable(fixtures / "uname", '#!/bin/sh\nif [ "$1" = -m ]; then echo arm64; else echo Darwin; fi\n')
-            # Real archives and published hashes exercise extraction and integrity
-            # handling without network access or a desktop application install.
-            artifacts = base / "artifacts"
-            artifacts.mkdir()
-            copilot = artifacts / "copilot"
-            executable(copilot, '#!/bin/sh\nprintf "copilot fixture\\n"\n')
-            copilot_archive = artifacts / "copilot-darwin-arm64.tar.gz"
-            with tarfile.open(copilot_archive, "w:gz") as archive:
-                archive.add(copilot, arcname="copilot")
-            font = artifacts / "fixture.ttf"
-            font.write_text("fixture font")
-            font_archive = artifacts / "JetBrainsMono.tar.xz"
-            with tarfile.open(font_archive, "w:xz") as archive:
-                archive.add(font, arcname="fixture.ttf")
-            code = artifacts / "code"
-            executable(code, '#!/bin/sh\nprintf "code fixture\\n"\n')
-            code_archive = artifacts / "vscode.zip"
-            with zipfile.ZipFile(code_archive, "w") as archive:
-                archive.write(code, "Visual Studio Code.app/Contents/Resources/app/bin/code")
-            downloads = {}
-            for repo, asset in (("github/copilot-cli", copilot_archive), ("ryanoasis/nerd-fonts", font_archive)):
-                url = "https://fixture.invalid/" + asset.name
-                metadata = artifacts / (asset.name + ".json")
-                metadata.write_text(json.dumps({"assets": [{"name": asset.name, "browser_download_url": url,
-                    "digest": "sha256:" + hashlib.sha256(asset.read_bytes()).hexdigest()}]}))
-                downloads["https://api.github.com/repos/" + repo + "/releases/latest"] = str(metadata)
-                downloads[url] = str(asset)
-            vscode_metadata = artifacts / "vscode.json"
-            vscode_metadata.write_text(json.dumps({"version": "a" * 40, "url": "https://fixture.invalid/vscode.zip",
-                "sha256hash": hashlib.sha256(code_archive.read_bytes()).hexdigest()}))
-            downloads["https://update.code.visualstudio.com/api/update/darwin-arm64/stable/latest"] = str(vscode_metadata)
-            downloads["https://fixture.invalid/vscode.zip"] = str(code_archive)
-            downloads["https://chatgpt.com/codex/install.sh"] = str(base / "codex-installer.stub")
-            curl_source = '#!' + sys.executable + '\nimport sys,shutil\nroutes=' + repr(downloads) + '\n'
-            curl_source += 'url=next(a for a in sys.argv[1:] if a.startswith("https://"))\nshutil.copyfile(routes[url],sys.argv[-1])\n'
-            executable(fixtures / "curl", curl_source)
-            jq = shutil.which("jq")
-            self.assertIsNotNone(jq, "jq is required for the portable archive fixture test")
-            executable(playground / "install/homebrew/bin/jq", '#!/bin/sh\nexec ' + shlex.quote(jq) + ' "$@"\n')
-            codex_stub = base / "codex-installer.stub"
-            executable(codex_stub, r"""#!/bin/sh
-case ":$PATH:" in
-  *":$CODEX_INSTALL_DIR:"*) ;;
-  *) printf '# delegated installer PATH hook\n' >> "$PD_USER_HOME/.zshrc" ;;
-esac
-existing="$(command -v codex || true)"
-if [ -n "$existing" ] && [ "$existing" != "$CODEX_INSTALL_DIR/codex" ]; then
-  printf '# delegated conflict PATH hook\n' >> "$PD_USER_HOME/.zshrc"
-fi
-mkdir -p "$CODEX_INSTALL_DIR"
-printf '#!/bin/sh\nprintf "codex-cli fixture\\n"\n' > "$CODEX_INSTALL_DIR/codex"
-chmod +x "$CODEX_INSTALL_DIR/codex"
-""")
-            environment = dict(
-                os.environ, PATH=str(fixtures) + os.pathsep + os.defpath,
-                PD_USER_HOME=str(user), XDG_CONFIG_HOME=str(user / ".config"),
-                PD_SKIP_DESKTOP_PATH="1", PD_FIXTURE_CODEX_INSTALLER=str(codex_stub),
-            )
-            for _ in range(2):
-                result = subprocess.run(
-                    [BASH, str(ROOT / "install.sh"), "--activate", "--root", str(playground)],
-                    env=environment, capture_output=True, text=True,
-                )
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertEqual(sentinel.read_text(), "keep my project\n")
-            content = (user / ".zshrc").read_text()
-            self.assertIn("# existing customization", content)
-            self.assertEqual(content.count("# >>> pd-playground PATH >>>"), 1)
-            for name in ("bash", "tmux", "yazi", "rustifiedgit", "codex", "btop", "fzf", "wezterm", "copilot", "code", "rg", "fd", "7zz", "ffmpeg", "pdftoppm"):
-                self.assertTrue(os.access(playground / "bin" / name, os.X_OK), name)
-            calls = (playground / "state/brew-calls").read_text()
-            self.assertIn("install bash tmux yazi git file btop fzf", calls)
-            self.assertIn("--appdir=" + str(playground / "install/apps"), calls)
-            self.assertEqual((playground / "config/codex/packages").resolve(),
-                             (playground / "install/codex/packages").resolve())
-            self.assertEqual((playground / ("install/vscode/" + "a" * 40 + "/code-portable-data")).resolve(), (playground / "config/vscode").resolve())
-            yazi_config = playground / "config/yazi/yazi.toml"
-            self.assertIn("rustifiedgit-file", yazi_config.read_text())
-            yazi_config.write_text(yazi_config.read_text() + "\n# keep my customization\n")
-            # A PC with an existing terminal can install without any home hooks.
-            manual_user = base / "manual-user"
-            manual_user.mkdir()
-            existing_profile = manual_user / ".zshrc"
-            existing_profile.write_bytes(b"# keep this profile exactly\n")
-            before = {str(path.relative_to(manual_user)): path.read_bytes()
-                      for path in manual_user.rglob("*") if path.is_file()}
-            result = subprocess.run(
-                [BASH, str(ROOT / "install.sh"), "--no-activate", "--root", str(playground)],
-                env=dict(environment, PD_USER_HOME=str(manual_user), XDG_CONFIG_HOME=str(manual_user / ".config")),
-                capture_output=True, text=True,
-            )
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            after = {str(path.relative_to(manual_user)): path.read_bytes()
-                     for path in manual_user.rglob("*") if path.is_file()}
-            self.assertEqual(after, before)
-            self.assertFalse((manual_user / ".config").exists())
-            self.assertIn("env-extra.sh", result.stdout)
-            for name in ("env-extra.sh", "env-extra.fish", "env-extra.ps1"):
-                self.assertTrue((playground / "config/shell" / name).is_file())
-            self.assertIn("# keep my customization", yazi_config.read_text())
-            existing_bin = base / "existing-codex"
-            executable(existing_bin / "codex", "#!/usr/bin/env node\n// existing installation\n")
-            existing_codex_before = (existing_bin / "codex").read_bytes()
-            result = subprocess.run(
-                [BASH, str(ROOT / "install.sh"), "--no-activate", "--root", str(playground)],
-                env=dict(environment, PD_USER_HOME=str(manual_user),
-                         XDG_CONFIG_HOME=str(manual_user / ".config"),
-                         PATH=str(existing_bin) + os.pathsep + environment["PATH"]),
-                capture_output=True, text=True,
-            )
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertEqual((existing_bin / "codex").read_bytes(), existing_codex_before)
-            self.assertEqual(existing_profile.read_bytes(), before[".zshrc"])
-            # Fresh managed Codex coexists with an existing npm command, with no
-            # delegated profile hook and no modification of the existing CLI.
-            fresh_root = base / "fresh-root"
-            result = subprocess.run([BASH, str(ROOT / "install.sh"), "--only-codex", "--root", str(fresh_root)],
-                env=dict(environment, PD_USER_HOME=str(manual_user), PATH=str(existing_bin) + os.pathsep + environment["PATH"]),
-                capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertTrue((fresh_root / "bin/codex").is_file())
-            self.assertEqual(existing_profile.read_bytes(), before[".zshrc"])
-            # A corrupt portable download must fail instead of installing it.
-            copilot_archive.write_bytes(b"corrupt archive")
-            result = subprocess.run([BASH, str(ROOT / "install.sh"), "--root", str(playground)],
-                                    env=environment, capture_output=True, text=True)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("SHA-256 verification failed", result.stderr)
+        result = subprocess.run([BASH, str(ROOT / "tests/check-unix.sh")],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

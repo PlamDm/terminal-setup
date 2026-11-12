@@ -16,8 +16,17 @@ Assert (@($windowsTools | Where-Object { $_.Id -eq 'pwsh' }).Count -eq 1) 'Power
 Assert (@($unixTools | Where-Object { $_.Id -in @('notepadpp', 'pwsh') }).Count -eq 0) 'Windows-only tools leaked into the Unix menu.'
 Assert (@($unixTools | Where-Object { $_.Id -eq 'yazi' }).Count -eq 1) 'Yazi is missing from the Unix menu.'
 Assert (Test-PDInstallPath -Path 'D:\my-tools') 'A valid playground path was rejected.'
+Assert (Test-PDInstallPath -Path 'D:\Users\j.doe\my-tools') 'A path containing periods was rejected.'
 Assert (-not (Test-PDInstallPath -Path 'D:\my tools')) 'A path containing spaces was accepted.'
 Assert (-not (Test-PDInstallPath -Path 'D:\')) 'A drive root was accepted as the playground.'
+
+$powerShellPath = (Get-Process -Id $PID).Path
+$defaultPreview = & $powerShellPath -NoProfile -ExecutionPolicy Bypass `
+    -File (Join-Path $repository 'install.ps1') -DryRun 2>&1
+Assert ($LASTEXITCODE -eq 0) 'The installer default-root dry run failed.'
+$invocationRoot = (Get-Location).ProviderPath.TrimEnd('\', '/')
+Assert (($defaultPreview -join "`n").Contains("Preview only; root: $invocationRoot")) `
+    'The Windows install root does not default to the invocation directory.'
 
 $ast = [Management.Automation.Language.Parser]::ParseFile(
     (Join-Path $repository 'install.ps1'), [ref]$null, [ref]$null)

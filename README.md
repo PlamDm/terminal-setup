@@ -1,309 +1,239 @@
 # Terminal setup
 
-Install **Yazi, tmux, fzf, WezTerm, RustifiedGit, Bash, Git, btop, Codex CLI,
-GitHub Copilot CLI and VS Code**, plus **Notepad++ and PowerShell 7 on Windows**.
-Tools, dependencies, managed configuration, caches and state live under a
-user-selected folder. No administrator installation is performed.
+A folder-owned launcher and pinned package installer for **Bash, Git, tmux,
+Yazi, fzf, btop, WezTerm, RustifiedGit, Codex, Copilot and VS Code**, plus
+**Notepad++ and PowerShell 7 on Windows**. Yazi includes its preview/search
+dependencies; WezTerm includes a private JetBrainsMono Nerd Font.
 
-By default, installation leaves your shell profiles and persistent PATH alone.
-Source one file to add the tools to an existing terminal.
+The default destination is **the directory from which you invoke the installer**,
+not your home directory. Installation, dependencies, templates, managed
+configuration, package archives and build state stay beneath that root. The
+default installation does not register applications, install fonts globally,
+modify Git configuration, or change profiles/persistent PATH.
 
-## Interactive installer
+This is a portable installation layout, **not an OS security sandbox**. See the
+runtime and platform limitations below before deploying it.
 
-Run the entry point with one option to choose a destination and select tools:
+## Install and select tools
 
-```sh
-bash install.sh --interactive
+Extract or clone the installer, then invoke its entry point from a dedicated,
+user-writable destination. The checkout itself can also be the destination.
+
+```powershell
+# Native x64 Windows PowerShell 5.1 or newer:
+& C:\path\terminal-setup\install.ps1 -Tools bash,tmux,yazi,fzf,copilot
+. .\activate.ps1
 ```
+
+```bash
+# Linux/macOS:
+bash /path/terminal-setup/install.sh --tools bash,tmux,yazi,fzf,copilot
+source ./activate.sh
+```
+
+Omit `-Tools` / `--tools` to request the full supported set. Tool IDs are
+`bash`, `git`, `tmux`, `yazi`, `fzf`, `btop`, `wezterm`, `rustifiedgit`,
+`codex`, `copilot`, `vscode`, and, on Windows, `notepadpp` and `pwsh`.
+Selecting Copilot on Windows also selects its private PowerShell 7 dependency.
+Windows MSYS2 Bash is an installer runtime even for a smaller selection.
+
+Use `-PlaygroundRoot D:\my-tools` / `--root "$HOME/my-tools"` to override the
+invocation directory. `-DryRun` / `--dry-run` previews without creating the root.
+`-OnlyCodex` / `--only-codex` selects only Codex.
+
+For the directory browser and tool menu:
 
 ```powershell
 .\install.ps1 -Interactive
 ```
 
-Use the arrow keys and Enter to navigate the directory browser and select the
-current folder. In the tool list, Space toggles `[x]` selections and Enter
-continues. The status columns distinguish tools managed under the selected
-folder from tools available elsewhere; missing tools are selected by default,
-except for packages unavailable in read-only MSYS2 mode.
-Yazi includes its preview helpers, WezTerm includes its private font, and
-selecting Copilot on Windows also installs its PowerShell 7 dependency. Windows
-MSYS2 Bash is shown as a required runtime. Before searching for MSYS2, Windows
-offers to use/install a private copy or search for an existing one. Searching
-opens the same folder browser; choose a folder and the installer checks it and
-its subfolders. Reused MSYS2 defaults to read-only and skips tools whose
-packages are missing. Answer `n` to try installing only missing packages with
-the existing no-upgrades/no-removals protection.
-
-## macOS and Linux
-
-```sh
-git clone https://github.com/PlamDm/terminal-setup.git
-cd terminal-setup
-bash install.sh --dry-run --root "$HOME/my-tools"
-bash install.sh --root "$HOME/my-tools"
-source "$HOME/my-tools/activate.sh"
+```bash
+bash install.sh --interactive
 ```
 
-Use a normal user account and an absolute directory without spaces. The default
-is `~/playground`. Bootstrap needs Bash, Git, curl, tar and platform developer
-tools: Xcode Command Line Tools on macOS, or a working C/C++ build toolchain on
-Linux. These are OS prerequisites; this installer does not install them globally.
+Use arrows and Enter to choose a folder, then Space to toggle tools and Enter
+to continue. Status distinguishes managed tools from commands available
+elsewhere. Selecting a tool installs its managed copy; an unrelated command
+on PATH is not a clean-bootstrap dependency.
 
-Packages and their library dependencies use a separate Homebrew prefix inside
-`install/homebrew`; an existing Homebrew installation is not reused. Custom
-prefixes can require lengthy source builds. Rustup and Cargo also stay inside
-the selected root. Copilot CLI is the standalone distribution, so Node.js is not
-required. VS Code uses its official portable archive for the current architecture.
+## Platform support and prerequisites
 
-Linux GUI tools also require a supported desktop session and the host libraries
-required by [VS Code](https://code.visualstudio.com/docs/setup/linux) and
-[WezTerm](https://wezterm.org/install/linux.html). The installer does not change
-system packages, display servers, kernel settings or Electron sandbox permissions.
-Notepad++ is a Windows application; it is installed and offered in Yazi on Windows.
-
-## Native Windows
-
-From PowerShell 5.1 or newer on x64 Windows 10/11:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -DryRun -PlaygroundRoot D:\my-tools
-powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -PlaygroundRoot D:\my-tools
-. "D:\my-tools\activate.ps1"
-```
-
-Choose a user-writable directory without spaces or special characters, on a
-filesystem supporting junctions and hard links (normally NTFS).
-The default is `%USERPROFILE%\playground`.
-
-The default installer extracts MSYS2's official self-extracting base archive into `install/msys2`, with
-no setup registration or Start menu shortcuts. PowerShell searches conventional
-`msys64` folders on fixed drives, common Scoop locations, `MSYS2_ROOT`, and
-executables already on `PATH`. When reuse is selected, it also searches fixed
-drives recursively for an `msys64` directory if those checks find nothing.
-If it finds an existing MSYS2, it asks whether
-to reuse it. Answer `y` to use it without downloading another MSYS2.
-**Existing Windows tools are preserved:** setup installs only missing tools,
-without upgrading existing portable applications, RustifiedGit or Yazi.
-For an existing MSYS2 (including one previously installed by this setup), only
-missing packages are requested. A pre-transaction guard aborts any package
-transaction that would upgrade, reinstall, downgrade or remove an installed
-package, including dependency changes. If a missing tool requires newer
-installed dependencies, choose a separate MSYS2 installation instead of updating
-the current one. Answer `n` to
-keep the tools setup self-contained under the selected playground folder.
-For unattended installs, pass `-UseExistingMsys2` to find and reuse it
-automatically. To search a particular parent folder and its subfolders, pass
-`-Msys2SearchPath D:\tools`; the Bash entry point accepts
-`--msys2-search-path /d/tools`. `-Msys2Root C:\msys64` remains available when
-you know the exact installation folder. The Bash entry point also accepts
-`--use-existing-msys2` and `--msys2-root /c/msys64`. The selected path
-is saved in `config/path/msys2-root.txt` for WezTerm and generated launchers.
-The playground folder must be outside the reused MSYS2 installation. Setup
-bypasses its shell startup files and keeps temporary files and a separate
-build-time home under the playground root.
-Its UCRT64 packages supply Git
-helpers, Rust and their library dependencies; Bash and tmux use MSYS2. Yazi 26.9.1
-is compiled with a small cache/state directory override because the stock Windows
-release otherwise uses AppData regardless of XDG settings.
-RustifiedGit is built into a native `.exe`. WezTerm, btop4win, Copilot, PowerShell
-7, VS Code and Notepad++ use portable archives. PowerShell 7 is included for
-Copilot; its .NET runtime is bundled. btop4win uses the release without elevated
-hardware-monitoring requirements.
-
-To leave a reused MSYS2 completely unchanged and continue with only what's
-already installed, pass `-Msys2ReadOnly` (or `--msys2-read-only` to the Bash
-entry point). For example:
-
-```powershell
-.\install.ps1 -Msys2SearchPath D:\tools -Msys2ReadOnly -PlaygroundRoot D:\my-tools
-```
-
-In this mode, no MSYS2 package query or transaction is run. Existing MSYS2
-commands are exposed; absent commands are omitted, and RustifiedGit or Yazi
-builds are skipped if Git, Cargo or Rust are unavailable. Other portable
-Windows tools can still be installed.
-
-Both Bash and CMD launchers are generated. Commands work from PowerShell, CMD,
-MSYS2 Bash and WezTerm after activating the setup. Close processes using this
-MSYS2 installation before updating it, and close apps before replacing their
-executables. PowerShell's `-Activate` explicitly enables persistent user PATH
-registration; it is off by default.
-
-## Dependencies and Yazi defaults
-
-The package managers install transitive library dependencies under the root.
-The full setup also includes these Yazi helpers:
-
-| Feature | Included tools |
+| Platform | Supported baseline |
 | --- | --- |
-| File types | `file` |
-| Video thumbnails | `ffmpeg`, `ffprobe` |
-| Archive previews and extraction | Full 7-Zip |
-| JSON and PDF previews | `jq`, Poppler |
-| File and content searches | `fd`, `rg`, `fzf` |
-| Directory history | `zoxide` |
-| SVG and other image previews | `resvg`, ImageMagick |
-| Linux clipboard and default opening | `xclip`, `wl-clipboard`, GLib's `gio` |
-| Icons | JetBrainsMono Nerd Font, loaded privately by WezTerm |
+| Windows | x64 Windows 10/11, 64-bit Windows PowerShell 5.1+, OS `tar.exe`; writable NTFS-style filesystem supporting hard links |
+| Linux x64 | glibc 2.28+ for core packages/Copilot; 2.29+ for WezTerm, 2.34+ for RustifiedGit; compatible desktop host libraries for GUI applications |
+| Linux arm64 | supported binary packages/AI CLIs; no locked WezTerm or RustifiedGit artifact, so requesting those or the full set fails preflight |
+| macOS x64 | macOS 13+ |
+| macOS arm64 | macOS 14.5+; required by the current locked Ghostscript dependency |
 
-In the managed Yazi, **Enter opens an action chooser**:
+Use an OS release still supported by your organization. A minimum compatible
+version is not a recommendation to run an unmaintained OS.
 
-- **Open** with the OS default application.
-- **RustifiedGit** in the selected directory, or the containing repository of a file.
-- **VS Code** with the selected files or directory.
-- **Notepad++** for files on Windows.
+Unix bootstrap uses system Bash, curl, tar, SHA-256 utilities and the platform's
+ordinary archive/file utilities. It does **not** require existing Homebrew,
+managed Git, Rust, Node.js, Xcode or another compiler. Missing OS prerequisites
+fail explicitly; the installer does not install them globally.
 
-Use **Right** or **l** to navigate into directories within Yazi. Yazi's regular
-selection and multi-file opening remain available. The installed defaults live
-in `config/yazi/keymap.toml` and `config/yazi/yazi.toml`; edit them freely. Reruns
-preserve existing configuration files. With an older customized Yazi setup,
-merge the repository's templates to enable the new chooser.
+Windows paths must contain only letters, digits, dot, underscore, hyphen and
+path separators, with no spaces. Unix paths may contain spaces.
+Linux GUI tools still require host desktop libraries, display services and
+appropriate Electron sandbox permissions. The installer does not change
+system packages, kernel settings or sandbox permissions.
 
-## Activate in an existing workflow
+## Locked packages and corporate HTTPS
 
-`activate.sh` works in Bash, Zsh and POSIX shells:
+Normal installation never resolves `latest`, refreshes a rolling package
+repository, or runs an upstream delegated installer. Reviewed inputs are
+recorded with exact URLs, versions and SHA-256:
 
-```sh
-source "$HOME/my-tools/activate.sh"
-# Equivalent:
-source "$HOME/my-tools/config/shell/env-extra.sh"
-```
+| Lock | Contents |
+| --- | --- |
+| `packages/artifacts.tsv` | Standalone applications, base runtimes and source archives |
+| `packages/msys2.windows-x64.tsv` | Frozen Windows package/dependency closure from signed MSYS2 metadata |
+| `packages/crates.windows-x64.tsv` | Offline Rust source dependencies and their checksums |
+| `packages/unix-*.tsv` | Per-platform binary package/dependency closures |
 
-For PowerShell:
+Representative pins include PowerShell **7.6.10**, Copilot **1.0.109**, Codex
+**0.167.1**, VS Code **1.146.0**, Yazi **26.9.1**, and WezTerm's upstream
+stable **20240203-110809-5046fc22** release. The locks, not this overview, are
+authoritative; package versions can differ by platform.
+
+Windows downloads use native PowerShell/.NET HTTPS with **existing Windows
+system trust**. The launcher does not import/export corporate or public
+certificates, replace certificate chains, disable verification, or relax
+revocation policy. There is no universal certificate that can authenticate
+every public site or intercepting proxy. If system policy blocks a download,
+installation fails with the URL; use an independently verified offline bundle
+or ask your administrator to provide approved access.
+
+MSYS2 receives local verified archives rather than HTTPS requests through its
+separate OpenSSL trust store. A fresh private signing keyring is initialized
+locally and populated from the bundled MSYS2 keys; package signature policy
+remains enabled. No `pacman -Syu` is performed.
+
+Exact pins give reproducible inputs, **not blanket enterprise/security approval**.
+WezTerm's old stable release, applications' licenses, platform support and AI
+network access still require organizational review. Default VS Code application
+and extension automatic updates and Copilot automatic updates are disabled;
+existing customized settings are preserved.
+
+## Offline bundles
+
+Prepare the selected platform's archives on an approved connected machine:
 
 ```powershell
-. "D:\my-tools\activate.ps1"
+& C:\path\terminal-setup\install.ps1 -PlaygroundRoot D:\bundle -Tools bash,tmux,fzf -DownloadOnly
 ```
 
-For Fish:
-
-```fish
-source "$HOME/my-tools/config/shell/env-extra.fish"
+```bash
+bash /path/terminal-setup/install.sh --root "$HOME/bundle" --tools bash,tmux,fzf --download-only
 ```
 
-Activation appends the setup's `bin` directory to the current session's PATH.
-Existing commands keep priority. Source it at the end of your profile if you
-want it in future terminals. Repeated sourcing does not duplicate the entry.
-
-To use the managed configuration when a tool already exists on PATH, call its
-launcher explicitly, for example `~/my-tools/bin/yazi` or
-`D:\my-tools\bin\yazi.cmd`. To put all managed commands first in a shell, source
-`config/shell/env.sh` instead. Launchers apply the setup's configuration and cache
-paths only to their child processes; the activation file does not globally change
-your other tools' configuration directories.
-
-For automatic shell and desktop user PATH registration, opt in:
-
-```sh
-bash install.sh --root "$HOME/my-tools" --activate
-```
+Transfer the bundle's `cache` directory and the matching installer/locks. From
+the desired destination, install without network access:
 
 ```powershell
-.\install.ps1 -PlaygroundRoot D:\my-tools -Activate
+& C:\path\terminal-setup\install.ps1 -Tools bash,tmux,fzf -PackageDirectory D:\bundle\cache -Offline
 ```
 
-`--no-activate` / `-NoActivate` remain supported. Manual mode does not remove
-hooks from an earlier automatically activated installation.
+```bash
+bash /path/terminal-setup/install.sh --tools bash,tmux,fzf --package-dir /path/bundle/cache --offline
+```
 
-## Layout and isolation
+Archive names are `SHA256-URL_basename`. Every reused or imported archive is
+verified. A missing or corrupt archive fails, rather than falling back to the
+network in offline mode. Include all dependencies for the selected tools.
+Windows Yazi/RustifiedGit source builds use vendored dependencies offline.
+
+## Templates, activation and moving the folder
 
 ```text
 my-tools/
-├── activate.sh / activate.ps1    source in an existing terminal
-├── bin/                         launchers for tools and Yazi helpers
-├── install/
-│   ├── homebrew/                macOS/Linux packages and libraries
-│   ├── msys2/                   Windows packages, libraries and compiler
-│   ├── apps/                    macOS WezTerm application
-│   ├── wezterm/ / btop/          Windows portable applications
-│   ├── rust/ / rustup/           macOS/Linux compiler toolchain
-│   ├── rustifiedgit/             compiled Git client
-│   ├── codex/ / copilot/         standalone AI CLIs
-│   ├── vscode/ / notepad++/      portable editors (Notepad++ on Windows)
-│   ├── powershell/               Windows portable PowerShell 7
-│   └── fonts/                    private Nerd Font files
-├── config/                      editable managed configuration
-├── state/                       history, tmux socket, zoxide data, build revision
-├── cache/                       downloads, previews and build artifacts
-└── tmp/                         temporary files
+  install.sh / install.ps1       copied manager entry points
+  activate.sh / activate.ps1     session-only activation
+  bin/                          root-relative tool launchers
+  install/                      portable applications and private runtimes
+    msys2/                      Windows runtime, libraries and build tools
+    conda/                      Unix binary environments and dependencies
+  templates/                    common default configuration
+  config/                       editable managed configuration
+  state/                        history, private sockets and application state
+  cache/                        verified packages, previews and build artifacts
+  tmp/                          installer/application temporary files
+  lib/ / packages/              manager helpers and exact locks
 ```
 
-VS Code's portable data directory points to `config/vscode`, including its
-extensions, user data and temporary files. Notepad++ uses a separate instance
-and `config/notepad++`. Copilot uses `COPILOT_HOME` and `COPILOT_CACHE_HOME` under
-the root, with automatic updates disabled. Codex uses its own `config/codex` and
-package payload. tmux uses a private socket, avoiding another setup's server.
-Managed Git uses `config/git/config` for its global configuration; configure
-your name and email through the managed Git launcher if needed.
+Templates are copied into `config` **only when a destination is missing**.
+Reruns preserve edits, including edits to root-local templates. To change an
+existing configuration, edit it or explicitly merge a newer template.
 
-This is **directory isolation, not an OS security sandbox**. Programs still run
-with your user permissions and can access files you open or repositories you
-work on. OS services such as the browser, credential store and desktop may use
-their own storage. WezTerm also manages some runtime logs and font caches in its
-upstream per-user locations. OS prerequisites are shared. Shell activation is exportable;
-a single native tool installation is not a relocatable cross-OS bundle. Rerun the
-installer with the desired root on another machine rather than copying binaries
-between operating systems or moving an existing Homebrew prefix.
+`activate.sh` and `config/shell/env-extra.sh` append commands to the current
+Bash/Zsh session without displacing existing commands; repeated sourcing does
+not duplicate PATH entries. Fish uses `config/shell/env-extra.fish`.
+PowerShell uses `activate.ps1`. In plain POSIX shells, provide
+`PD_PLAYGROUND_ROOT` explicitly before sourcing activation.
+To prioritize managed commands, source `config/shell/env.sh` instead, or call
+`bin/yazi` / `bin\yazi.cmd` directly.
 
-The repository contains only installer code and templates. Do not publish an
-installed folder containing credentials or session history.
+Close managed applications and tmux servers before copying or moving the root.
+Move the **whole folder**, then source activation from its new location. Native
+launchers discover their root at runtime. Unix activation re-links recorded
+binary prefixes using the already-verified local archives, offline. Keep those
+archives. A copied manager can add selected tools using its own entry point.
+Do not combine folders for different OS/architecture targets.
 
-## Updates and sign-in
+btop4win requires a co-located configuration hard link. After a copy, rerun the
+installer to restore linkage; if the two configurations diverged, reconcile
+them explicitly rather than overwriting either customization.
 
-On Windows, rerun with the same root to add missing tools, not to update existing
-ones. Existing portable versions and the active version recorded in
-`state/windows-commands.tsv` are reused without checking for updates.
-Only a newly extracted MSYS2 is upgraded during its initial setup; existing
-MSYS2 packages are preserved. Missing package installation can still require
-working mirror access and certificate trust.
-On macOS/Linux, reruns continue to update managed packages and portable tools.
-Existing projects and customized configuration are preserved. RustifiedGit is
-built from [PlamDm/RustifiedGit](https://github.com/PlamDm/RustifiedGit) at the
-pinned revision `7a2be2ebfa45cfc5be78e788a820ee145953f36b`. To build `main`, use:
+`--activate` / `-Activate` explicitly opts into persistent shell/user PATH
+registration and is outside the default folder-only contract.
+`--no-activate` / `-NoActivate` does not remove earlier opt-in registration.
 
-```sh
-bash install.sh --root "$HOME/my-tools" --rustifiedgit-ref main
-```
+## Existing installations and limitations
 
-```powershell
-.\install.ps1 -PlaygroundRoot D:\my-tools -RustifiedGitRef main
-```
+Fresh Windows installation always uses private MSYS2 unless reuse is explicitly
+requested with `-Msys2Root`, `-Msys2SearchPath` or `-UseExistingMsys2` (equivalent
+Bash options exist). Reuse is **not** a self-contained transferable bundle.
+Keep the destination outside the reused MSYS2 folder.
 
-Builds use `cargo build --release --locked`. The binary is reused when the source
-commit is unchanged; a failed build retains the previous executable. Downloaded
-portable archives are verified against published SHA-256 hashes.
-On Windows an existing RustifiedGit executable is always kept, even when a
-different ref is requested. Choose another root to install a different version.
+Existing Windows application versions are preserved, not silently upgraded.
+Only missing MSYS2 packages are installed. A pre-transaction guard rejects
+upgrades, downgrades, reinstalls or removals of installed packages; incompatible
+dependencies require a fresh root. `-Msys2ReadOnly` does not query or modify its
+package database; selected unavailable commands fail explicitly.
+Unix binary prefixes retain exact lock identities and validate executables;
+changed locks require an explicit migration, not a background update.
+Unreviewed source-ref overrides are rejected.
 
-The AI CLIs have separate sign-ins. Run the managed `codex login`, and launch
-managed `copilot` then use `/login`. Installing Copilot does not purchase a
-subscription or grant account access; your GitHub account needs Copilot access.
-To install only Codex, use `--only-codex` / `-OnlyCodex`.
+Yazi includes `file`, FFmpeg, 7-Zip, jq, Poppler, fd, ripgrep, zoxide, resvg and
+ImageMagick (plus platform dependencies such as Ghostscript). Core Yazi remains
+usable; **this bundle does not provide full Wayland clipboard parity**.
+Enter opens an action chooser for the OS default app, RustifiedGit, VS Code
+and, on Windows, Notepad++. Right/`l` retains directory navigation.
 
-## Checks
+No Git identity/global configuration is generated. Direct shell Git preserves
+the caller's configuration environment. Git inside managed child terminals or
+applications can discover different global configuration because of inherited
+HOME/XDG paths; native Windows launchers other than direct Git scope HOME
+beneath the root. Direct Git does not receive a managed HOME/config override.
 
-```sh
-# Tests require Python 3 and jq; fixture installs never contact the network.
-python3 tests/check.py
-bash install.sh --dry-run --platform macos
-bash install.sh --dry-run --platform linux
-bash install.sh --dry-run --platform windows
-```
+Programs retain your user permissions. Browser/credential/desktop services,
+host libraries and upstream **Windows WezTerm logs/font caches** can use OS
+storage outside the root. These cannot be promised folder-contained by this
+launcher. Do not distribute `config`, `state` or caches containing credentials,
+session history or private project data without reviewing/removing that data.
+Codex and Copilot have independent sign-ins and require appropriate account
+access; installing them grants no subscription or organization approval.
 
-Tests cover previews, opt-in registration, activation priority, configuration
-routing, quoted arguments, repeat installs, preserved settings, verified portable
-archive extraction and failed downloads/builds. Windows CI also installs real
-portable applications, runs their command launchers, and builds and runs the
-pinned RustifiedGit `.exe` using native MSYS2 Rust.
+## Development checks and lock maintenance
 
-## References
+`python3 tests/check.py` and `bash tests/check-unix.sh` run offline fixtures.
+Windows checks are the `tests/check-*.ps1` scripts. Development tests may use
+Python/Git Bash; neither is a native clean-bootstrap dependency.
+CI covers offline fixtures and selected real clean bootstraps on supported
+hosts; Linux/macOS binaries cannot be runtime-validated on a Windows host.
 
-- [Yazi dependencies](https://yazi-rs.github.io/docs/installation/)
-- [Yazi opener configuration](https://yazi-rs.github.io/docs/configuration/yazi/)
-- [GitHub Copilot CLI installation](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli)
-- [Copilot configuration and cache paths](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference)
-- [VS Code portable mode](https://code.visualstudio.com/docs/setup/portable)
-- [Notepad++ portable distribution](https://github.com/notepad-plus-plus/notepad-plus-plus/releases)
-- [Notepad++ settings directory](https://github.com/notepad-plus-plus/npp-usermanual/blob/master/content/docs/command-prompt.md)
-- [Homebrew installation prerequisites](https://docs.brew.sh/Installation)
-- [Codex installer variables](https://learn.chatgpt.com/docs/config-file/environment-variables)
+Maintainer scripts under `tools` regenerate frozen locks. Review version
+support, licenses, signed metadata, checksums and dependency changes before
+publishing new locks. Installers do not invoke lock generators.

@@ -53,11 +53,18 @@ install_rustifiedgit() {
       ! pd_require_readonly_msys2_build_tools RustifiedGit; then
     return 0
   fi
-  git init -q "$pd_source"
-  git -C "$pd_source" remote add origin "$PD_REPO"
-  git -C "$pd_source" fetch --depth 1 origin "$PD_REF"
-  git -C "$pd_source" checkout -q --detach FETCH_HEAD
-  pd_commit="$(git -C "$pd_source" rev-parse HEAD)"
+  if [ "$PD_OS" = windows ]; then
+    [ -n "${PD_RUSTIFIEDGIT_SOURCE:-}" ] ||
+      die "Run install.ps1 to prepare the locked offline RustifiedGit source."
+    pd_source="$PD_RUSTIFIEDGIT_SOURCE"
+    pd_commit="$PD_REF"
+  else
+    git init -q "$pd_source"
+    git -C "$pd_source" remote add origin "$PD_REPO"
+    git -C "$pd_source" fetch --depth 1 origin "$PD_REF"
+    git -C "$pd_source" checkout -q --detach FETCH_HEAD
+    pd_commit="$(git -C "$pd_source" rev-parse HEAD)"
+  fi
   if pd_rustifiedgit_cached "$pd_commit"; then
     log "RustifiedGit ref resolves to the already installed revision."
     return
@@ -71,7 +78,7 @@ install_rustifiedgit() {
       CARGO_HOME="$(pd_native_path "$PD_ROOT/cache/cargo")" \
       RUSTUP_HOME="$(pd_native_path "$PD_INSTALL/rustup")" \
       RUSTC="$(pd_native_path "$PD_RUSTC")" \
-      "$PD_CARGO" build --release --locked --target-dir "$pd_target"
+      "$PD_CARGO" build --release --locked --target-dir "$pd_target" ${PD_RUSTIFIEDGIT_SOURCE:+--offline}
   )
   pd_staged="$PD_INSTALL/rustifiedgit/bin/.rustifiedgit-install-$$$pd_suffix"
   cp "$pd_target/release/rustifiedgit$pd_suffix" "$pd_staged"

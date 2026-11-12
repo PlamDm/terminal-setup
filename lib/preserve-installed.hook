@@ -1,0 +1,11 @@
+[Trigger]
+Operation = Upgrade
+Operation = Remove
+Type = Package
+Target = *
+
+[Action]
+Description = Refusing changes to already installed packages
+When = PreTransaction
+Exec = /usr/bin/false
+AbortOnFail

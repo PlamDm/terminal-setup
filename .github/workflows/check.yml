@@ -5,112 +5,92 @@ permissions:
   contents: read
 
 jobs:
-  bash:
+  unix:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-24.04, macos-15, macos-15-intel]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: Installer, launcher and PATH checks
+      - name: Offline installer, package, relocation and configuration fixtures
         run: python3 tests/check.py
-  powershell:
-    runs-on: windows-latest
+      - name: Clean binary bootstrap, offline rerun and moved activation
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository="$PWD"
+          root="$PWD/.ci-playground/native"
+          mkdir -p "$root"
+          cd "$root"
+          PATH=/usr/bin:/bin /bin/bash "$repository/install.sh"
+          printf '\n# preserve bootstrap customization\n' >> config/yazi/yazi.toml
+          PATH=/usr/bin:/bin /bin/bash ./install.sh --offline
+          grep -q 'preserve bootstrap customization' config/yazi/yazi.toml
+          cd ..
+          mv native relocated
+          cd relocated
+          source ./activate.sh
+          for command in bash git fzf yazi ya btop rustifiedgit codex copilot; do
+            "./bin/$command" --version
+          done
+          ./bin/tmux -V
+          ./bin/wezterm --version
+          ./bin/code --version
+          PATH=/usr/bin:/bin /bin/bash ./install.sh --offline --tools bash,tmux,fzf
+  windows:
+    runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
-      - name: Parse PowerShell and run its preview
+      - name: Safe offline package, MSYS2, selection and preservation fixtures
         shell: powershell
         run: |
-          $parseErrors = $null
-          $tokens = $null
-          [System.Management.Automation.Language.Parser]::ParseFile(
-            "$PWD/install.ps1", [ref]$tokens, [ref]$parseErrors
-          ) | Out-Null
-          if ($parseErrors.Count -gt 0) {
-            $parseErrors | Format-List
-            exit 1
+          $ErrorActionPreference = 'Stop'
+          $env:PATH = 'C:\Program Files\Git\bin;' + $env:PATH
+          $env:TEMP = "$PWD\.ci-playground\fixture-tmp"
+          $env:TMP = $env:TEMP
+          [IO.Directory]::CreateDirectory($env:TEMP) | Out-Null
+          foreach ($test in @('package-manager','msys2','codex-isolation','interactive','preserve-tools')) {
+            & powershell.exe -NoProfile -File ".\tests\check-$test.ps1"
+            if ($LASTEXITCODE) { throw "Failed fixture: $test" }
           }
-          .\install.ps1 -DryRun
-      - name: Preview installation without profile or persistent PATH changes
+      - name: Full OS-only bootstrap, offline rerun and relocation
         shell: powershell
-        run: .\install.ps1 -DryRun -NoActivate
-      - name: Keep delegated installer PATH changes isolated in manual mode
-        shell: powershell
-        run: .\tests\check-codex-isolation.ps1
-      - name: Check protected and read-only MSYS2 reuse
-        shell: powershell
-        run: .\tests\check-msys2.ps1
-      - name: Check interactive tool catalog and managed/external status
-        shell: powershell
-        run: .\tests\check-interactive.ps1
-      - name: Preserve existing portable tools and install missing tools offline
-        shell: powershell
-        run: .\tests\check-preserve-tools.ps1
-      - name: Install verified portable apps and run their native command launchers
-        shell: powershell
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: .\tests\check-portable.ps1
-  windows-rustifiedgit:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: msys2/setup-msys2@v2
-        with:
-          msystem: UCRT64
-          update: true
-          install: git mingw-w64-ucrt-x86_64-rust
-      - name: Build and run the pinned native RustifiedGit executable
-        shell: msys2 {0}
         run: |
-          set -euo pipefail
-          PD_ROOT="$PWD/.ci-playground"
-          PD_INSTALL="$PD_ROOT/install"
-          PD_TEMP="$PD_ROOT/tmp"
-          PD_REPO=https://github.com/PlamDm/RustifiedGit.git
-          PD_REF="$(sed -n 's/^PD_REF="\(.*\)"/\1/p' install.sh)"
-          PD_OS=windows
-          mkdir -p "$PD_INSTALL" "$PD_TEMP" "$PD_ROOT/state"
-          log() { printf '%s\n' "$*"; }
-          die() { printf '%s\n' "$*" >&2; exit 1; }
-          . lib/rustifiedgit.sh
-          pd_install_rust() {
-            PD_CARGO=/ucrt64/bin/cargo.exe
-            PD_RUSTC=/ucrt64/bin/rustc.exe
+          $ErrorActionPreference = 'Stop'
+          $repository = $PWD.Path
+          $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+          $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
+          $root = Join-Path $repository '.ci-playground\native'
+          [IO.Directory]::CreateDirectory((Join-Path $root 'tmp')) | Out-Null
+          $env:TEMP = Join-Path $root 'tmp'; $env:TMP = $env:TEMP
+          Set-Location -LiteralPath $root
+          & powershell.exe -NoProfile -NonInteractive -File (Join-Path $repository 'install.ps1')
+          if ($LASTEXITCODE) { throw 'Full clean bootstrap failed.' }
+          Add-Content config\yazi\yazi.toml '# preserve bootstrap customization'
+          & powershell.exe -NoProfile -NonInteractive -File .\install.ps1 -Offline
+          if ($LASTEXITCODE) { throw 'Full offline rerun failed.' }
+          if (-not (Select-String -Quiet -Path config\yazi\yazi.toml -Pattern 'preserve bootstrap customization')) {
+            throw 'Rerun replaced customized configuration.'
           }
-          install_rustifiedgit
-          "$PD_INSTALL/rustifiedgit/bin/rustifiedgit.exe" --version
-      - name: Check generated PowerShell activation without persistent PATH changes
-        shell: msys2 {0}
-        run: |
-          set -euo pipefail
-          PD_ROOT="$PWD/.ci-playground"
-          PD_OS=windows
-          . lib/environment.sh
-          pd_write_environment
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$PWD/tests/check-activation.ps1")" \
-            -ActivationFile "$(cygpath -w "$PD_ROOT/config/shell/env-extra.ps1")" \
-            -ExpectedDirectory "$(cygpath -w "$PD_ROOT/bin")"
-      - name: Build Yazi with private cache and state directories
-        shell: msys2 {0}
-        run: |
-          set -euo pipefail
-          PD_DIR="$PWD"
-          PD_ROOT="$PWD/.ci-playground"
-          PD_INSTALL="$PD_ROOT/install"
-          PD_TEMP="$PD_ROOT/tmp/yazi-build"
-          PD_OS=windows
-          mkdir -p "$PD_TEMP"
-          log() { printf '%s\n' "$*"; }
-          . lib/rustifiedgit.sh
-          . lib/yazi.sh
-          pd_install_rust() {
-            PD_CARGO=/ucrt64/bin/cargo.exe
-            PD_RUSTC=/ucrt64/bin/rustc.exe
+          Set-Location -LiteralPath (Split-Path -Parent $root)
+          $moved = Join-Path $PWD 'relocated'
+          Move-Item -LiteralPath $root -Destination $moved
+          Set-Location -LiteralPath $moved
+          $env:TEMP = Join-Path $moved 'tmp'; $env:TMP = $env:TEMP
+          . .\activate.ps1
+          foreach ($command in @('bash','git','fzf','yazi','ya','rustifiedgit','codex','copilot','wezterm','btop','pwsh')) {
+            & ".\bin\$command.cmd" --version
+            if ($LASTEXITCODE) { throw "Relocated command failed: $command" }
           }
-          install_portable_yazi_windows
-          YAZI_CONFIG_HOME="$(cygpath -m "$PD_ROOT/config/yazi")" \
-          YAZI_CACHE_HOME="$(cygpath -m "$PD_ROOT/cache/yazi")" \
-          YAZI_STATE_HOME="$(cygpath -m "$PD_ROOT/state/yazi")" \
-            "$PD_INSTALL/yazi/bin/ya.exe" --version
+          & .\bin\tmux.cmd -V
+          if ($LASTEXITCODE) { throw 'Relocated tmux failed.' }
+          & .\bin\code.cmd --version
+          if ($LASTEXITCODE) { throw 'Relocated VS Code failed.' }
+          & powershell.exe -NoProfile -NonInteractive -File .\install.ps1 -Offline -Tools bash,tmux,fzf
+          if ($LASTEXITCODE) { throw 'Relocated copied manager failed.' }
+          if ([Environment]::GetEnvironmentVariable('Path', 'User') -cne $userPath -or
+              [Environment]::GetEnvironmentVariable('Path', 'Machine') -cne $machinePath) {
+            throw 'Bootstrap changed persistent PATH.'
+          }

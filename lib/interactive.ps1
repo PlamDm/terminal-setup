@@ -115,7 +115,7 @@ function Get-PDToolStatus {
 
 function Test-PDInstallPath {
     param([string] $Path)
-    return [bool]($Path -match '^[A-Za-z]:[\\/][A-Za-z0-9_\\/-]+$')
+    return [bool]($Path -match '^[A-Za-z]:[\\/][A-Za-z0-9._\\/-]+$')
 }
 
 function Test-PDReadOnlyBuildAvailable {

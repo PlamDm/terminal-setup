@@ -13,6 +13,7 @@ pd_msys2_feature_selected() {
 }
 
 pd_install_msys2_packages() (
+  [ "${PD_MSYS2_PACKAGES_READY:-0}" != 1 ] || return 0
   if [ "${PD_MSYS2_READ_ONLY:-0}" = 1 ]; then
     return 0
   fi
@@ -87,8 +88,25 @@ EOF
   fi
 )
 
+pd_install_msys2_archives() (
+  local pd_hookdir pd_pacman="${PD_MSYS2_ROOT%/}/usr/bin/pacman.exe"
+  [ "$#" -gt 0 ] || return 0
+  pd_hookdir="$(mktemp -d "${TMPDIR:?}/msys2-hooks.XXXXXX")" || return 1
+  trap 'rm -rf -- "$pd_hookdir"' EXIT
+  cp "$PD_DIR/lib/preserve-installed.hook" "$pd_hookdir/00-terminal-setup-preserve-installed.hook" || return 1
+  "$pd_pacman" -U --needed --noconfirm \
+    --hookdir "${PD_MSYS2_ROOT%/}/etc/pacman.d/hooks" --hookdir "$pd_hookdir" "$@"
+)
+
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   set -euo pipefail
   PD_MSYS2_ROOT="${1:?MSYS2 root is required}"
-  pd_install_msys2_packages
+  if [ "${2:-}" = --locked ]; then
+    PD_DIR="${3:?Manager root is required}"
+    cd -- "${4:?Package transaction directory is required}"
+    mapfile -t pd_archives < files.txt
+    pd_install_msys2_archives "${pd_archives[@]}"
+  else
+    pd_install_msys2_packages
+  fi
 fi
