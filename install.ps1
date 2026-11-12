@@ -468,7 +468,12 @@ function Write-WindowsLaunchers {
                 $lines += 'set "COPILOT_HOME=' + $configDirectory + '\copilot"'
                 $lines += 'set "COPILOT_CACHE_HOME=' + $cacheDirectory + '\copilot"'
                 $lines += 'set "COPILOT_AUTO_UPDATE=false"'
-                $lines += 'set "PATH=' + (Split-Path -Parent $env:PD_PWSH_EXE) + ';%PATH%"'
+                $powerShellExecutable = [Environment]::GetEnvironmentVariable('PD_PWSH_EXE', 'Process')
+                if (-not $powerShellExecutable) {
+                    $powerShellExecutable = Find-InstalledTool -Name 'powershell' -Executable 'pwsh.exe'
+                }
+                if (-not $powerShellExecutable) { throw 'The Copilot launcher requires the managed PowerShell 7 executable.' }
+                $lines += 'set "PATH=' + (Split-Path -Parent $powerShellExecutable) + ';%PATH%"'
             }
             'code' {
                 $lines += 'set "VSCODE_PORTABLE=' + $configDirectory + '\vscode"'

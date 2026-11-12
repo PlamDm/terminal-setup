@@ -29,7 +29,7 @@ def shell_path(path):
             return value
         value = Path(path).resolve().as_posix()
         return "/" + value[0].lower() + value[2:]
-    return value
+    return Path(path).resolve().as_posix()
 
 
 def launcher_command(path, *args):
@@ -69,7 +69,7 @@ class PlaygroundChecks(unittest.TestCase):
                 'set -euo pipefail\n'
                 'PD_MSYS2_ROOT="$1"\n'
                 'PD_SELECTION_MODE=explicit\n'
-                'PD_SELECTED_TOOLS=yazi,wezterm\n'
+                'PD_SELECTED_TOOLS=yazi,git,rustifiedgit,wezterm\n'
                 'PD_MSYS2_PRESERVE_INSTALLED=0\n'
                 'PD_MSYS2_READ_ONLY=0\n'
                 '. "$2/lib/msys2.sh"\n'
@@ -82,6 +82,7 @@ class PlaygroundChecks(unittest.TestCase):
             self.assertIn("git", packages)
             self.assertIn("mingw-w64-ucrt-x86_64-rust", packages)
             self.assertIn("mingw-w64-ucrt-x86_64-ffmpeg", packages)
+            self.assertEqual(len(packages), len(set(packages)))
             self.assertNotIn("tmux", packages)
             self.assertNotIn("mingw-w64-ucrt-x86_64-fzf", packages)
 

@@ -13,7 +13,7 @@ $msysRoot = Join-Path $installRoot 'msys2'
 $PackageDirectory = Join-Path $base 'bundle'
 $Offline = $true
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-$envNames = @('TEMP', 'TMP', 'HOME', 'XDG_CONFIG_HOME')
+$envNames = @('TEMP', 'TMP', 'HOME', 'XDG_CONFIG_HOME', 'PD_PWSH_EXE')
 $saved = @{}
 foreach ($name in $envNames) { $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 function Assert([bool] $Condition, [string] $Message) { if (-not $Condition) { throw $Message } }
@@ -61,6 +61,10 @@ public class PackageFixture {
     Assert ((Test-Path -LiteralPath $target)) 'Verified archive did not install.'
     Assert ((Install-PDArchive fixture fixture fixture.exe) -ceq $target) 'Repeat install changed the active executable.'
     $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $repository 'install.ps1'), [ref]$null, [ref]$null)
+    $findDefinition = $ast.Find({ param($node)
+        $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Find-InstalledTool'
+    }, $true)
+    Set-Item Function:Find-InstalledTool $findDefinition.Body.GetScriptBlock()
     $definition = $ast.Find({ param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Write-WindowsLaunchers'
     }, $true)
@@ -80,13 +84,31 @@ public class PackageFixture {
     $output = & (Join-Path $moved 'bin\git.cmd')
     Assert (($output -join "`n").Contains('home=caller-home') -and
         ($output -join "`n").Contains('config=caller-config')) 'Direct Git changed caller configuration discovery.'
-    $PlaygroundRoot = $moved; $binDirectory = Join-Path $moved 'bin'
+    $PlaygroundRoot = $moved
+    $installRoot = Join-Path $moved 'install'
+    $binDirectory = Join-Path $moved 'bin'
+    $configDirectory = Join-Path $moved 'config'
+    $cacheDirectory = Join-Path $moved 'cache'
+    $msysRoot = Join-Path $installRoot 'msys2'
     $manifest = Join-Path $moved 'state\windows-commands.tsv'
+    $copilot = Join-Path $moved 'install\copilot\v1\copilot.exe'
+    $pwsh = Join-Path $moved 'install\powershell\v1\pwsh.exe'
+    foreach ($path in @($copilot, $pwsh)) {
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $path)) | Out-Null
+        [IO.File]::WriteAllText($path, 'fixture')
+    }
+    [IO.File]::WriteAllText($manifest,
+        "copilot`tinstall\copilot\v1\copilot.exe`npwsh`tinstall\powershell\v1\pwsh.exe`n")
+    $env:PD_PWSH_EXE = $null
+    Write-WindowsLaunchers
+    $copilotLauncher = [IO.File]::ReadAllText((Join-Path $binDirectory 'copilot.cmd'))
+    $pwshDirectory = (Split-Path -Parent $pwsh).Replace($moved, '%PD_ROOT%')
+    Assert ($copilotLauncher.Contains('set "PATH=' + $pwshDirectory + ';%PATH%"')) `
+        'The Copilot launcher did not resolve PowerShell from the relocated managed installation.'
     [IO.File]::WriteAllText($manifest, "../escape`tinstall\fixture\1\fixture.exe`n")
     Assert-Failure { Write-WindowsLaunchers } 'Unsafe command name escaped the launcher directory.'
     [IO.File]::WriteAllText($manifest, "fixture`tC:\Windows\System32\cmd.exe`n")
     Assert-Failure { Write-WindowsLaunchers } 'External command target was silently accepted.'
-    $configDirectory = Join-Path $moved 'config'
     $definition = $ast.Find({ param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Configure-Btop'
     }, $true)

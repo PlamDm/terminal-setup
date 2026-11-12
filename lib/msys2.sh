@@ -39,8 +39,8 @@ pd_install_msys2_packages() (
     if pd_msys2_feature_selected rustifiedgit; then
       pd_packages+=(mingw-w64-ucrt-x86_64-rust)
     fi
-    local pd_unique_packages=() pd_seen pd_existing
-    for pd_package in "${pd_packages[@]}"; do
+    local pd_unique_packages=("${pd_packages[0]}") pd_seen pd_existing
+    for pd_package in "${pd_packages[@]:1}"; do
       pd_seen=0
       for pd_existing in "${pd_unique_packages[@]}"; do
         if [ "$pd_package" = "$pd_existing" ]; then pd_seen=1; break; fi

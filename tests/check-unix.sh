@@ -164,6 +164,7 @@ pd_vscode_sha="$(pd_hash "$pd_test/vscode-fixture.tar.gz")"
 cp "$pd_test/vscode-fixture.tar.gz" "$PD_PACKAGE_DIR/$pd_vscode_sha-vscode-fixture.tar.gz"
 printf 'vscode\tlinux-x64\t2.0\t%s\thttps://example.invalid/vscode-fixture.tar.gz\ttar.gz\tbin/code\ttest\n' "$pd_vscode_sha" >> "$PD_ARTIFACT_MANIFEST"
 PD_SELECTED_TOOLS=vscode
+PD_OS=linux
 install_portable_unix_tools
 [ "$PD_CODE" = "$PD_INSTALL/vscode/bin/code" ]
 [ -x "$PD_CODE" ] && [ -d "$PD_INSTALL/vscode/data" ]
