@@ -15,14 +15,19 @@ param(
     [ValidatePattern('^[A-Za-z]:[\\/][A-Za-z0-9._\\/-]+$')]
     [string] $Msys2Root,
     [string] $Msys2SearchPath,
-    [ValidatePattern('^[A-Za-z]:[\\/][A-Za-z0-9._\\/-]+$')]
-    [string] $PlaygroundRoot = (Get-Location).ProviderPath,
+    [string] $PlaygroundRoot,
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._/-]*$')]
     [string] $RustifiedGitRef = '7a2be2ebfa45cfc5be78e788a820ee145953f36b'
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+if (-not $PSBoundParameters.ContainsKey('PlaygroundRoot')) {
+    $PlaygroundRoot = Join-Path (Split-Path -Parent $PSScriptRoot) 'personal-tools'
+}
+if ($PlaygroundRoot -notmatch '^[A-Za-z]:[\\/][A-Za-z0-9._\\/-]+$') {
+    throw 'PlaygroundRoot must be a Windows path without spaces or special characters.'
+}
 $PlaygroundRoot = [IO.Path]::GetFullPath($PlaygroundRoot).TrimEnd('\', '/')
 if ($PlaygroundRoot -eq [IO.Path]::GetPathRoot($PlaygroundRoot).TrimEnd('\', '/') -or
     $PlaygroundRoot -eq [Environment]::GetFolderPath('UserProfile').TrimEnd('\', '/')) {
@@ -60,21 +65,12 @@ function Test-PDSelected {
     if ($Id -eq 'pwsh' -and $selectedTools -contains 'copilot') { return $true }
     return $selectedTools -contains $Id
 }
-function Copy-PDManager {
-    if ([IO.Path]::GetFullPath($PlaygroundRoot).TrimEnd('\') -ieq $PSScriptRoot.TrimEnd('\')) { return }
-    foreach ($file in @('install.ps1', 'install.sh', 'wezterm.lua')) {
+function Copy-PDWindowsRuntimeHelpers {
+    foreach ($file in @('configure-paths.ps1', 'set-yazi-config-home.cmd')) {
+        $source = Join-Path $PSScriptRoot $file
         $destination = Join-Path $PlaygroundRoot $file
-        if (-not (Test-Path -LiteralPath $destination)) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $destination }
-    }
-    foreach ($directory in @('lib', 'packages', 'patches', 'yazi')) {
-        $source = Join-Path $PSScriptRoot $directory
-        foreach ($file in Get-ChildItem -LiteralPath $source -Recurse -File) {
-            $relative = $file.FullName.Substring($source.Length + 1)
-            $destination = Join-Path (Join-Path $PlaygroundRoot $directory) $relative
-            if (-not (Test-Path -LiteralPath $destination)) {
-                [IO.Directory]::CreateDirectory((Split-Path -Parent $destination)) | Out-Null
-                Copy-Item -LiteralPath $file.FullName -Destination $destination
-            }
+        if (-not (Test-Path -LiteralPath $destination)) {
+            Copy-Item -LiteralPath $source -Destination $destination
         }
     }
 }
@@ -447,6 +443,7 @@ function Write-WindowsLaunchers {
         $lines = @(
             '@echo off', 'setlocal', 'set "MSYSTEM=UCRT64"',
             'set "CHERE_INVOKING=1"', 'set "MSYS2_PATH_TYPE=inherit"',
+            'set "PD_PLAYGROUND_ROOT=%PD_ROOT%"',
             ('set "PD_MSYS2_ROOT=' + $msysRoot + '"'),
             ('set "PATH=' + $binDirectory + ';' + $msysRoot + '\ucrt64\bin;' + $msysRoot + '\usr\bin;%PATH%"'),
             ('set "XDG_CONFIG_HOME=' + $configDirectory + '"'),
@@ -458,10 +455,17 @@ function Write-WindowsLaunchers {
             ('set "_ZO_DATA_DIR=' + $PlaygroundRoot + '\state\zoxide"'),
             ('set "HOME=' + $PlaygroundRoot + '\state\home"')
         )
+        if ($name -eq 'rustifiedgit') {
+            $lines += @(
+                'if not defined PD_DEVTOOLS_ROOT if exist "%PD_ROOT%\config\path\devtools-root.txt" for /f "usebackq delims=" %%I in ("%PD_ROOT%\config\path\devtools-root.txt") do set "PD_DEVTOOLS_ROOT=%%I"',
+                'if defined PD_DEVTOOLS_ROOT if exist "%PD_DEVTOOLS_ROOT%\bin\PortableGit\cmd\git.exe" set "PATH=%PD_DEVTOOLS_ROOT%\bin\PortableGit\cmd;%PATH%"'
+            )
+        }
         if ($name -eq 'git') {
             $lines = @($lines | Where-Object { $_ -notmatch '^set "(HOME|XDG_CONFIG_HOME)=' })
         }
         $extra = ''
+        $guiTarget = $null
         switch ($name) {
             'codex' { $lines += 'set "CODEX_HOME=' + $configDirectory + '\codex"' }
             'copilot' {
@@ -483,7 +487,8 @@ function Write-WindowsLaunchers {
             }
             'notepad++' { $extra = '-multiInst -settingsDir="' + $configDirectory + '\notepad++" ' }
             'yazi' {
-                $lines += 'set "YAZI_CONFIG_HOME=' + $configDirectory + '\yazi"'
+                $lines += 'call "%PD_ROOT%\set-yazi-config-home.cmd"'
+                $lines += 'if errorlevel 1 exit /b 1'
                 $lines += 'set "YAZI_CACHE_HOME=' + $cacheDirectory + '\yazi"'
                 $lines += 'set "YAZI_STATE_HOME=' + $PlaygroundRoot + '\state\yazi"'
                 $lines += 'set "XDG_RUNTIME_DIR=' + $PlaygroundRoot + '\tmp"'
@@ -492,7 +497,8 @@ function Write-WindowsLaunchers {
                 }
             }
             'ya' {
-                $lines += 'set "YAZI_CONFIG_HOME=' + $configDirectory + '\yazi"'
+                $lines += 'call "%PD_ROOT%\set-yazi-config-home.cmd"'
+                $lines += 'if errorlevel 1 exit /b 1'
                 $lines += 'set "YAZI_CACHE_HOME=' + $cacheDirectory + '\yazi"'
                 $lines += 'set "YAZI_STATE_HOME=' + $PlaygroundRoot + '\state\yazi"'
                 $lines += 'set "XDG_RUNTIME_DIR=' + $PlaygroundRoot + '\tmp"'
@@ -503,15 +509,82 @@ function Write-WindowsLaunchers {
             }
             'tmux' { $extra = '-S "' + $PlaygroundRoot + '\state\tmux\socket" -f "' + $configDirectory + '\tmux\tmux.conf" ' }
             'rustifiedgit' { $extra = '--use-config-dir "' + $configDirectory + '\rustifiedgit" ' }
-            'wezterm' { $extra = '--config-file "' + $configDirectory + '\wezterm\wezterm.lua" ' }
+            'wezterm' {
+                $guiTarget = Join-Path (Split-Path -Parent $target) 'wezterm-gui.exe'
+                if (-not (Test-Path -LiteralPath $guiTarget -PathType Leaf)) {
+                    throw "The managed WezTerm GUI executable is missing: $guiTarget"
+                }
+                $extra = '--config-file "' + $configDirectory + '\wezterm\wezterm.lua" '
+            }
         }
-        $lines += '"' + $target + '" ' + $extra + '%*'
-        $lines += 'exit /b %errorlevel%'
+        if ($name -eq 'yazi') {
+            $lines += @(
+                'if defined PD_YAZI_CWD_FILE goto terminal_setup_yazi_cwd_file_provided',
+                'set "PD_YAZI_CWD_FILE=%PD_ROOT%\tmp\yazi-cwd-%RANDOM%-%RANDOM%.txt"',
+                ('"' + $target + '" ' + $extra + '%* --cwd-file "%PD_YAZI_CWD_FILE%"'),
+                'set "PD_YAZI_EXIT=%ERRORLEVEL%"',
+                'set "PD_YAZI_NEW_CWD="',
+                'if exist "%PD_YAZI_CWD_FILE%" for /f "usebackq delims=" %%I in ("%PD_YAZI_CWD_FILE%") do set "PD_YAZI_NEW_CWD=%%I"',
+                'if defined PD_YAZI_NEW_CWD cd /d "%PD_YAZI_NEW_CWD%"',
+                'if exist "%PD_YAZI_CWD_FILE%" del "%PD_YAZI_CWD_FILE%" >nul 2>nul',
+                'exit /b %PD_YAZI_EXIT%',
+                ':terminal_setup_yazi_cwd_file_provided',
+                ('"' + $target + '" ' + $extra + '%* --cwd-file "%PD_YAZI_CWD_FILE%"'),
+                'exit /b %ERRORLEVEL%'
+            )
+        } elseif ($name -eq 'wezterm') {
+            $lines += @(
+                'if not "%~1"=="" goto terminal_setup_wezterm_foreground',
+                ('start "" "' + $guiTarget + '" ' + $extra),
+                'exit /b %errorlevel%',
+                ':terminal_setup_wezterm_foreground',
+                ('"' + $target + '" ' + $extra + '%*'),
+                'exit /b %errorlevel%'
+            )
+        } else {
+            $lines += '"' + $target + '" ' + $extra + '%*'
+            $lines += 'exit /b %errorlevel%'
+        }
         $lines = @($lines | ForEach-Object { $_.Replace($PlaygroundRoot.TrimEnd('\'), '%PD_ROOT%') })
         $lines = @('@echo off', 'setlocal', 'for %%I in ("%~dp0..") do set "PD_ROOT=%%~fI"') + $lines
         [IO.File]::WriteAllText(
             (Join-Path $binDirectory ($name + '.cmd')),
             ($lines -join [Environment]::NewLine) + [Environment]::NewLine,
+            [Text.UTF8Encoding]::new($false)
+        )
+    }
+}
+
+function Write-YaziIntegrationLaunchers {
+    foreach ($item in @(
+        @{ Name = 'fzf-yazi.cmd'; Script = 'open-with-fzf.ps1' },
+        @{ Name = 'copilot-yazi.cmd'; Script = 'open-copilot-tab.ps1' },
+        @{ Name = 'copilot-yazi-bash.cmd'; Script = 'open-copilot-bash.ps1' }
+    )) {
+        $path = Join-Path $binDirectory $item.Name
+        $content = @(
+            '@echo off',
+            'rem Managed by terminal-setup.',
+            'setlocal',
+            'for %%I in ("%~dp0..") do set "PD_ROOT=%%~fI"',
+            'set "PD_PLAYGROUND_ROOT=%PD_ROOT%"',
+            'call "%PD_ROOT%\set-yazi-config-home.cmd"',
+            'if errorlevel 1 exit /b 1',
+            ('set "PD_YAZI_SCRIPT=%YAZI_CONFIG_HOME%\scripts\' + $item.Script + '"'),
+            'if not exist "%PD_YAZI_SCRIPT%" (echo terminal-setup: Yazi helper script is missing: "%PD_YAZI_SCRIPT%" 1>&2 & exit /b 1)',
+            '"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%PD_YAZI_SCRIPT%" %*',
+            'exit /b %errorlevel%'
+        )
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+            if (-not [IO.File]::ReadAllText($path).Contains('rem Managed by terminal-setup.')) {
+                throw "Refusing to overwrite an existing user launcher: $path"
+            }
+        } elseif (Test-Path -LiteralPath $path) {
+            throw "Cannot create a managed launcher; a directory exists at $path."
+        }
+        [IO.File]::WriteAllText(
+            $path,
+            ($content -join [Environment]::NewLine) + [Environment]::NewLine,
             [Text.UTF8Encoding]::new($false)
         )
     }
@@ -685,7 +758,7 @@ if ($Interactive -and -not $OnlyCodex) {
 foreach ($directory in @($installRoot, $binDirectory, $configDirectory, $cacheDirectory, (Join-Path $PlaygroundRoot 'tmp'))) {
     [IO.Directory]::CreateDirectory($directory) | Out-Null
 }
-Copy-PDManager
+Copy-PDWindowsRuntimeHelpers
 [IO.Directory]::CreateDirectory((Join-Path $configDirectory 'path')) | Out-Null
 $msysConfigRoot = if ($msysRoot.StartsWith($PlaygroundRoot.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
     $msysRoot.Substring($PlaygroundRoot.TrimEnd('\').Length + 1).Replace('\', '/')
@@ -742,6 +815,7 @@ try {
     Invoke-Checked -Program $bash -Arguments $arguments
     if (Test-PDSelected 'wezterm') { Update-WezTermMsys2Config }
     Write-WindowsLaunchers
+    Write-YaziIntegrationLaunchers
 } finally {
     foreach ($name in $environmentNames) {
         [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], 'Process')
@@ -749,6 +823,13 @@ try {
     foreach ($source in $buildSources) { Remove-Item -LiteralPath $source -Recurse -Force }
 }
 if (-not $NoActivate) { Register-WindowsPath }
+if (Test-PDSelected 'wezterm') {
+    $consoleSetup = Join-Path $PSScriptRoot 'configure-devtools-console.ps1'
+    if (-not (Test-Path -LiteralPath $consoleSetup -PathType Leaf)) {
+        throw "The d_t console setup script is missing: $consoleSetup"
+    }
+    & $consoleSetup -PlaygroundRoot $PlaygroundRoot
+}
 if ($NoActivate) {
     Write-Host ('[playground] Ready. Load extra tools in PowerShell with: . "' + $configDirectory + '\shell\env-extra.ps1"')
 } else {

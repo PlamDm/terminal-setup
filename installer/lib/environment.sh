@@ -137,6 +137,61 @@ _pd_playground_path="$(printf '%s\n' "$PATH" | awk -v pd_bin="$_pd_playground_bi
 export PATH="$_pd_playground_path"
 unset _pd_playground_bin _pd_playground_path
 EOF
+    cat <<'EOF'
+unalias yazi 2>/dev/null || :
+unset -f yazi 2>/dev/null || :
+yazi() {
+  local pd_yazi_cwd_file pd_yazi_native_cwd pd_yazi_status pd_yazi_system
+  if [ -z "${PD_PLAYGROUND_ROOT:-}" ]; then
+    printf '%s\n' 'terminal-setup: activate the managed tools before using the Yazi shell integration.' >&2
+    return 1
+  fi
+  pd_yazi_cwd_file="$(mktemp "$PD_PLAYGROUND_ROOT/tmp/yazi-cwd.XXXXXX")" || return 1
+  pd_yazi_status=0
+  pd_yazi_system="$(uname -s)"
+  case "$pd_yazi_system" in
+    MSYS*|MINGW*)
+      if command -v yazi.cmd >/dev/null 2>&1; then
+        pd_yazi_native_cwd="$(cygpath -m "$pd_yazi_cwd_file")" || {
+          rm -f -- "$pd_yazi_cwd_file"
+          return 1
+        }
+        (
+          export PD_YAZI_CWD_FILE="$pd_yazi_native_cwd"
+          command yazi.cmd "$@"
+        ) || pd_yazi_status=$?
+      else
+        command yazi "$@" --cwd-file "$pd_yazi_cwd_file" || pd_yazi_status=$?
+      fi ;;
+    *) command yazi "$@" --cwd-file "$pd_yazi_cwd_file" || pd_yazi_status=$? ;;
+  esac
+  if [ -s "$pd_yazi_cwd_file" ]; then
+    IFS= read -r pd_yazi_native_cwd < "$pd_yazi_cwd_file" || :
+    pd_yazi_native_cwd=${pd_yazi_native_cwd%$'\r'}
+    if [ -n "$pd_yazi_native_cwd" ]; then
+      case "$pd_yazi_system" in
+        MSYS*|MINGW*)
+          pd_yazi_native_cwd="$(cygpath -u "$pd_yazi_native_cwd")" || {
+            rm -f -- "$pd_yazi_cwd_file"
+            return 1
+          } ;;
+      esac
+    fi
+    if [ -n "$pd_yazi_native_cwd" ] && [ -d "$pd_yazi_native_cwd" ]; then
+      cd -- "$pd_yazi_native_cwd" || {
+        rm -f -- "$pd_yazi_cwd_file"
+        return 1
+      }
+    elif [ -n "$pd_yazi_native_cwd" ]; then
+      printf 'terminal-setup: Yazi returned a missing directory: %s\n' "$pd_yazi_native_cwd" >&2
+      rm -f -- "$pd_yazi_cwd_file"
+      return 1
+    fi
+  fi
+  rm -f -- "$pd_yazi_cwd_file"
+  return "$pd_yazi_status"
+}
+EOF
   } > "$PD_ROOT/config/shell/env-extra.sh"
   {
     printf 'set -gx PD_PLAYGROUND_ROOT (cd (dirname (status filename))/../..; and pwd -P)\n'
@@ -147,6 +202,26 @@ EOF
     printf 'fish_add_path --move --prepend --path "$PD_PLAYGROUND_ROOT/bin"\n'
   } > "$PD_ROOT/config/shell/env.fish"
   sed 's/--prepend/--append/' "$PD_ROOT/config/shell/env.fish" > "$PD_ROOT/config/shell/env-extra.fish"
+  cat >> "$PD_ROOT/config/shell/env-extra.fish" <<'EOF'
+function yazi
+    set -l pd_yazi_cwd_file (mktemp "$PD_PLAYGROUND_ROOT/tmp/yazi-cwd.XXXXXX")
+    or return 1
+    command yazi $argv --cwd-file "$pd_yazi_cwd_file"
+    set -l pd_yazi_status $status
+    if test -s "$pd_yazi_cwd_file"
+        set -l pd_yazi_selected_cwd (string trim -r -c '\r' < "$pd_yazi_cwd_file")
+        if test -n "$pd_yazi_selected_cwd"
+            cd -- "$pd_yazi_selected_cwd"
+            or begin
+                rm -f -- "$pd_yazi_cwd_file"
+                return 1
+            end
+        end
+    end
+    rm -f -- "$pd_yazi_cwd_file"
+    return $pd_yazi_status
+end
+EOF
   {
     printf '# Extra tools for the current PowerShell session; persistent PATH is untouched.\n& {\n'
     printf '  $env:PD_PLAYGROUND_ROOT = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "../.."))\n'
@@ -173,6 +248,33 @@ EOF
     $_ -and -not [string]::Equals($terminalSetupEntry.TrimEnd([char[]]'\/'), $terminalSetupBin, $terminalSetupComparison)
   })
   $env:PATH = (@($terminalSetupEntries) + @($terminalSetupBin)) -join $terminalSetupSeparator
+}
+EOF
+  cat <<'EOF'
+function global:yazi {
+    if (-not $env:PD_PLAYGROUND_ROOT) {
+        throw 'terminal-setup: activate the managed tools before using the Yazi shell integration.'
+    }
+    $cwdFile = Join-Path $env:PD_PLAYGROUND_ROOT ('tmp\yazi-cwd-' + [Guid]::NewGuid().ToString('N') + '.txt')
+    $previousCwdFile = $env:PD_YAZI_CWD_FILE
+    $exitCode = 0
+    try {
+        $env:PD_YAZI_CWD_FILE = $cwdFile
+        & (Join-Path $env:PD_PLAYGROUND_ROOT 'bin\yazi.cmd') @args
+        $exitCode = $LASTEXITCODE
+        if (Test-Path -LiteralPath $cwdFile -PathType Leaf) {
+            $selectedDirectory = [IO.File]::ReadAllText($cwdFile).Trim()
+            if ($selectedDirectory) {
+                Set-Location -LiteralPath $selectedDirectory
+            }
+        }
+    } finally {
+        if (Test-Path -LiteralPath $cwdFile -PathType Leaf) {
+            Remove-Item -LiteralPath $cwdFile -Force
+        }
+        $env:PD_YAZI_CWD_FILE = $previousCwdFile
+    }
+    $global:LASTEXITCODE = $exitCode
 }
 EOF
   } > "$PD_ROOT/config/shell/env-extra.ps1"
@@ -352,7 +454,30 @@ _pd_codex_home="$PD_PLAYGROUND_ROOT/config/codex"
 case "$(uname -s)" in MSYS*|MINGW*) _pd_codex_home="$(cygpath -m "$_pd_codex_home")" ;; esac
 EOF
         printf 'exec env CODEX_HOME="$_pd_codex_home" "$_pd_target" "$@"\n' ;;
-      rustifiedgit) printf 'exec "$_pd_target" --use-config-dir "$PD_PLAYGROUND_ROOT/config/rustifiedgit" "$@"\n' ;;
+      rustifiedgit)
+        cat <<'EOF'
+case "$(uname -s)" in
+  MSYS*|MINGW*)
+    _pd_devtools_root="${PD_DEVTOOLS_ROOT:-}"
+    if [ -z "$_pd_devtools_root" ] && [ -r "$PD_PLAYGROUND_ROOT/config/path/devtools-root.txt" ]; then
+      IFS= read -r _pd_devtools_root < "$PD_PLAYGROUND_ROOT/config/path/devtools-root.txt"
+    fi
+    if [ -n "$_pd_devtools_root" ]; then
+      if ! _pd_devtools_root="$(cygpath -u "$_pd_devtools_root")"; then
+        printf '%s\n' 'terminal-setup: cannot resolve the configured d_t root for RustifiedGit.' >&2
+        exit 1
+      fi
+      _pd_native_git_bin="$_pd_devtools_root/bin/PortableGit/cmd"
+      if [ -x "$_pd_native_git_bin/git.exe" ]; then
+        PATH="$_pd_native_git_bin:$PATH"
+        export PATH
+      fi
+    fi
+    unset _pd_devtools_root _pd_native_git_bin
+    ;;
+esac
+EOF
+        printf 'exec "$_pd_target" --use-config-dir "$PD_PLAYGROUND_ROOT/config/rustifiedgit" "$@"\n' ;;
       tmux) printf 'exec "$_pd_target" -S "$PD_PLAYGROUND_ROOT/state/tmux/socket" -f "$PD_PLAYGROUND_ROOT/config/tmux/tmux.conf" "$@"\n' ;;
       copilot)
         if [ "${PD_OS:-}" = windows ] && [ -n "${PD_PWSH:-}" ]; then
@@ -391,7 +516,21 @@ EOF
         printf 'exec "$_pd_target" --rcfile "$PD_PLAYGROUND_ROOT/config/bash/bashrc" "$@"\n' ;;
       yazi|ya)
         cat <<'EOF'
-export YAZI_CONFIG_HOME="$PD_PLAYGROUND_ROOT/config/yazi"
+_pd_yazi_config_home="$PD_PLAYGROUND_ROOT/config/yazi"
+_pd_yazi_config_home_file="$PD_PLAYGROUND_ROOT/config/path/yazi-config-home.txt"
+if [ -r "$_pd_yazi_config_home_file" ]; then
+  IFS= read -r _pd_yazi_config_home < "$_pd_yazi_config_home_file" || exit 1
+  case "$_pd_yazi_config_home" in
+    [A-Za-z]:\\*|[A-Za-z]:/*)
+      case "$(uname -s)" in
+        MSYS*|MINGW*) _pd_yazi_config_home="$(cygpath -u "$_pd_yazi_config_home")" || exit 1 ;;
+      esac ;;
+  esac
+fi
+if [ ! -f "$_pd_yazi_config_home/yazi.toml" ]; then
+  _pd_yazi_config_home="$PD_PLAYGROUND_ROOT/config/yazi"
+fi
+export YAZI_CONFIG_HOME="$_pd_yazi_config_home"
 export YAZI_CACHE_HOME="$PD_PLAYGROUND_ROOT/cache/yazi"
 export YAZI_STATE_HOME="$PD_PLAYGROUND_ROOT/state/yazi"
 export XDG_RUNTIME_DIR="$PD_PLAYGROUND_ROOT/tmp"
@@ -407,6 +546,7 @@ case "$(uname -s)" in
       export YAZI_FILE_ONE="$(cygpath -m "${PD_PLAYGROUND_MSYS2_ROOT%/}/usr/bin/file.exe")"
     fi ;;
 esac
+unset _pd_yazi_config_home _pd_yazi_config_home_file
 EOF
         printf 'exec "$_pd_target" "$@"\n' ;;
       *) printf 'exec "$_pd_target" "$@"\n' ;;

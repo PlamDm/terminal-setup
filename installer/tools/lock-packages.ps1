@@ -1,12 +1,15 @@
 #requires -Version 5.1
 [CmdletBinding()]
 param(
-    [string] $WorkDirectory = (Join-Path (Split-Path -Parent $PSScriptRoot) '.ci-playground\lock-tmp'),
+    [string] $WorkDirectory,
     [string] $Msys2Root
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+if (-not $PSBoundParameters.ContainsKey('WorkDirectory')) {
+    $WorkDirectory = Join-Path (Split-Path -Parent $PSScriptRoot) '.ci-playground\lock-tmp'
+}
 $repository = Split-Path -Parent $PSScriptRoot
 $output = Join-Path $repository 'packages'
 [IO.Directory]::CreateDirectory($WorkDirectory) | Out-Null

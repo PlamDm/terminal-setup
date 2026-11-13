@@ -13,7 +13,7 @@ $msysRoot = Join-Path $installRoot 'msys2'
 $PackageDirectory = Join-Path $base 'bundle'
 $Offline = $true
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-$envNames = @('TEMP', 'TMP', 'HOME', 'XDG_CONFIG_HOME', 'PD_PWSH_EXE')
+$envNames = @('TEMP', 'TMP', 'HOME', 'XDG_CONFIG_HOME', 'PD_PWSH_EXE', 'PD_DEVTOOLS_ROOT')
 $saved = @{}
 foreach ($name in $envNames) { $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 function Assert([bool] $Condition, [string] $Message) { if (-not $Condition) { throw $Message } }
@@ -35,6 +35,7 @@ public class PackageFixture {
     public static void Main() {
         Console.WriteLine("config=" + Environment.GetEnvironmentVariable("XDG_CONFIG_HOME"));
         Console.WriteLine("home=" + Environment.GetEnvironmentVariable("HOME"));
+        Console.WriteLine("path=" + Environment.GetEnvironmentVariable("PATH"));
     }
 }
 '@
@@ -69,9 +70,16 @@ public class PackageFixture {
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Write-WindowsLaunchers'
     }, $true)
     Set-Item Function:Write-WindowsLaunchers $definition.Body.GetScriptBlock()
+    $devtoolsRoot = Join-Path $base 'd_t'
+    $devtoolsGitBin = Join-Path $devtoolsRoot 'bin\PortableGit\cmd'
+    [IO.Directory]::CreateDirectory($devtoolsGitBin) | Out-Null
+    [IO.File]::WriteAllText((Join-Path $devtoolsGitBin 'git.exe'), 'fixture')
+    [IO.Directory]::CreateDirectory((Join-Path $PlaygroundRoot 'config\path')) | Out-Null
+    [IO.File]::WriteAllText((Join-Path $PlaygroundRoot 'config\path\devtools-root.txt'), $devtoolsRoot)
     [IO.File]::WriteAllText((Join-Path $PlaygroundRoot 'state\windows-commands.tsv'),
-        "fixture`tinstall\fixture\1\fixture.exe`ngit`tinstall\fixture\1\fixture.exe`n")
+        "fixture`tinstall\fixture\1\fixture.exe`ngit`tinstall\fixture\1\fixture.exe`nrustifiedgit`tinstall\fixture\1\fixture.exe`n")
     $env:HOME = 'caller-home'; $env:XDG_CONFIG_HOME = 'caller-config'
+    $env:PD_DEVTOOLS_ROOT = $null
     Write-WindowsLaunchers
     $moved = Join-Path $base 'moved'
     Move-Item -LiteralPath $PlaygroundRoot -Destination $moved
@@ -84,6 +92,10 @@ public class PackageFixture {
     $output = & (Join-Path $moved 'bin\git.cmd')
     Assert (($output -join "`n").Contains('home=caller-home') -and
         ($output -join "`n").Contains('config=caller-config')) 'Direct Git changed caller configuration discovery.'
+    $output = & (Join-Path $moved 'bin\rustifiedgit.cmd')
+    Assert ($LASTEXITCODE -eq 0) 'RustifiedGit launcher could not execute.'
+    Assert (($output -join "`n").Contains("path=$devtoolsGitBin;")) `
+        'RustifiedGit did not prioritize the configured Windows Git executable.'
     $PlaygroundRoot = $moved
     $installRoot = Join-Path $moved 'install'
     $binDirectory = Join-Path $moved 'bin'

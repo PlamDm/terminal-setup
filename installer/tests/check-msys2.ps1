@@ -363,6 +363,10 @@ PD_MSYS2_READY=1 "$BASH" "$1/install.sh" --root "$PD_ROOT" --msys2-root "$PD_MSY
 '@)
     $output = & $testBash --noprofile --norc $rootCheck.Replace('\', '/') $repository.Replace('\', '/') $unixPlayground / 2>&1
     Assert ($LASTEXITCODE -eq 0) ("Root-mounted toolchain or launchers failed: " + ($output -join "`n"))
+    $rustifiedgitLauncher = [IO.File]::ReadAllText((Join-Path $PlaygroundRoot 'bin\rustifiedgit'))
+    Assert ($rustifiedgitLauncher.Contains('config/path/devtools-root.txt') -and
+        $rustifiedgitLauncher.Contains('bin/PortableGit/cmd')) `
+        'RustifiedGit shell launcher did not prioritize configured Windows Git.'
     $text = ($output -join "`n").Replace('\', '/')
     Assert ($text.Contains($msysRoot.Replace('\', '/') + '/ucrt64/bin')) 'Launcher PATH did not resolve the root-mounted UCRT64 tools.'
     Assert ($text.Contains('YAZI_FILE_ONE=' + $msysRoot.Replace('\', '/') + '/usr/bin/file.exe')) 'Yazi launcher did not resolve its root-mounted file helper.'

@@ -15,11 +15,32 @@ if not msys2_root:match('^/') and not msys2_root:match('^%a:/') then
 end
 config.default_cwd = root
 config.term = 'xterm-256color'
+config.enable_kitty_graphics = false
 config.font_dirs = { root .. '/install/fonts' }
-config.font = wezterm.font('JetBrainsMono Nerd Font')
+config.font = wezterm.font('Lucida Console')
+config.font_size = 10.0
+config.keys = {
+  {
+    key = '+',
+    mods = 'CTRL|ALT|SHIFT',
+    action = wezterm.action.SpawnTab('CurrentPaneDomain'),
+  },
+  {
+    key = 'LeftArrow',
+    mods = 'CTRL|ALT',
+    action = wezterm.action.ActivateTabRelative(-1),
+  },
+  {
+    key = 'RightArrow',
+    mods = 'CTRL|ALT',
+    action = wezterm.action.ActivateTabRelative(1),
+  },
+}
 if wezterm.target_triple:find('windows') then
+  local bash = os.getenv('DEVTOOLS_BASH_EXE') or msys2_root .. '/usr/bin/bash.exe'
+  bash = bash:gsub('\\', '/')
   config.default_prog = {
-    msys2_root .. '/usr/bin/bash.exe',
+    bash,
     '--rcfile', root .. '/config/bash/bashrc', '-i',
   }
   config.set_environment_variables = {
@@ -28,6 +49,7 @@ if wezterm.target_triple:find('windows') then
     MSYS2_PATH_TYPE = 'inherit',
     PD_PLAYGROUND_ROOT = root,
     PD_PLAYGROUND_MSYS2_ROOT = msys2_root,
+    DEVTOOLS_BASH_EXE = bash,
     PATH = root .. '/bin;' .. msys2_root .. '/ucrt64/bin;' ..
       msys2_root .. '/usr/bin;' .. (os.getenv('PATH') or ''),
   }

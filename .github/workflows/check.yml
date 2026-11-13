@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Offline installer, package, relocation and configuration fixtures
-        run: python3 tests/check.py
+        run: python3 installer/tests/check.py
       - name: Clean binary bootstrap, offline rerun and moved activation
         shell: bash
         run: |
@@ -23,9 +23,9 @@ jobs:
           root="$PWD/.ci-playground/native"
           mkdir -p "$root"
           cd "$root"
-          PATH=/usr/bin:/bin /bin/bash "$repository/install.sh"
+          PATH=/usr/bin:/bin /bin/bash "$repository/installer/install.sh" --root "$root"
           printf '\n# preserve bootstrap customization\n' >> config/yazi/yazi.toml
-          PATH=/usr/bin:/bin /bin/bash ./install.sh --offline
+          PATH=/usr/bin:/bin /bin/bash "$repository/installer/install.sh" --root "$root" --offline
           grep -q 'preserve bootstrap customization' config/yazi/yazi.toml
           cd ..
           mv native relocated
@@ -37,7 +37,7 @@ jobs:
           ./bin/tmux -V
           ./bin/wezterm --version
           ./bin/code --version
-          PATH=/usr/bin:/bin /bin/bash ./install.sh --offline --tools bash,tmux,fzf
+          PATH=/usr/bin:/bin /bin/bash "$repository/installer/install.sh" --root "$PWD" --offline --tools bash,tmux,fzf
   windows:
     runs-on: windows-2025
     steps:
@@ -50,8 +50,8 @@ jobs:
           $env:TEMP = "$PWD\.ci-playground\fixture-tmp"
           $env:TMP = $env:TEMP
           [IO.Directory]::CreateDirectory($env:TEMP) | Out-Null
-          foreach ($test in @('package-manager','msys2','codex-isolation','interactive','preserve-tools')) {
-            & powershell.exe -NoProfile -File ".\tests\check-$test.ps1"
+          foreach ($test in @('package-manager','msys2','codex-isolation','interactive','preserve-tools','devtools-console','yazi-openers','yazi-paths')) {
+            & powershell.exe -NoProfile -File ".\installer\tests\check-$test.ps1"
             if ($LASTEXITCODE) { throw "Failed fixture: $test" }
           }
       - name: Full OS-only bootstrap, offline rerun and relocation
@@ -62,14 +62,25 @@ jobs:
           $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
           $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
           $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
+          $installer = Join-Path $repository 'installer\install.ps1'
           $root = Join-Path $repository '.ci-playground\native'
           [IO.Directory]::CreateDirectory((Join-Path $root 'tmp')) | Out-Null
           $env:TEMP = Join-Path $root 'tmp'; $env:TMP = $env:TEMP
           Set-Location -LiteralPath $root
-          & powershell.exe -NoProfile -NonInteractive -File (Join-Path $repository 'install.ps1')
+          & powershell.exe -NoProfile -NonInteractive -File $installer -PlaygroundRoot $root
           if ($LASTEXITCODE) { throw 'Full clean bootstrap failed.' }
+          foreach ($helper in @('configure-paths.ps1','set-yazi-config-home.cmd')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $root $helper))) {
+              throw "Runtime helper was not installed: $helper"
+            }
+          }
+          foreach ($sourcePath in @('install.ps1','install.sh','wezterm.lua','lib','packages','patches','yazi')) {
+            if (Test-Path -LiteralPath (Join-Path $root $sourcePath)) {
+              throw "Installer source was copied into output: $sourcePath"
+            }
+          }
           Add-Content config\yazi\yazi.toml '# preserve bootstrap customization'
-          & powershell.exe -NoProfile -NonInteractive -File .\install.ps1 -Offline
+          & powershell.exe -NoProfile -NonInteractive -File $installer -PlaygroundRoot $root -Offline
           if ($LASTEXITCODE) { throw 'Full offline rerun failed.' }
           if (-not (Select-String -Quiet -Path config\yazi\yazi.toml -Pattern 'preserve bootstrap customization')) {
             throw 'Rerun replaced customized configuration.'
@@ -88,8 +99,8 @@ jobs:
           if ($LASTEXITCODE) { throw 'Relocated tmux failed.' }
           & .\bin\code.cmd --version
           if ($LASTEXITCODE) { throw 'Relocated VS Code failed.' }
-          & powershell.exe -NoProfile -NonInteractive -File .\install.ps1 -Offline -Tools bash,tmux,fzf
-          if ($LASTEXITCODE) { throw 'Relocated copied manager failed.' }
+          & powershell.exe -NoProfile -NonInteractive -File $installer -PlaygroundRoot $moved -Offline -Tools bash,tmux,fzf
+          if ($LASTEXITCODE) { throw 'Relocated offline rerun failed.' }
           if ([Environment]::GetEnvironmentVariable('Path', 'User') -cne $userPath -or
               [Environment]::GetEnvironmentVariable('Path', 'Machine') -cne $machinePath) {
             throw 'Bootstrap changed persistent PATH.'

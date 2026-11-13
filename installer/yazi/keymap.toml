@@ -1,4 +1,4 @@
 [[mgr.prepend_keymap]]
 on = "<Enter>"
 run = "open --interactive"
-desc = "Choose: Open, RustifiedGit, VS Code, Notepad++"
+desc = "Choose action for the selected item"

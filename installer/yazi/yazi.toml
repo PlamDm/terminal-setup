@@ -1,0 +1,74 @@
+# Enter opens the per-file action menu. The PS1 rule includes psexe.
+[opener]
+edit = [
+  { run = 'notepad++.cmd %s', orphan = true, desc = "Notepad++", for = "windows" },
+]
+notepadpp = [
+  { run = 'notepad++.cmd %s', orphan = true, desc = "Notepad++", for = "windows" },
+]
+nvim = [
+  { run = 'nvim.exe -- %s', block = true, desc = "Neovim", for = "windows" },
+]
+explorer = [
+  { run = 'explorer.exe %s1', orphan = true, desc = "Explorer", for = "windows" },
+]
+vscode = [
+  { run = "code %s", orphan = true, desc = "VSCode", for = "windows" },
+]
+compare_selected = [
+  { run = "ya emit plugin compare-menu", orphan = true, desc = "BeyondCompare", for = "windows" },
+]
+hexview = [
+  { run = 'HexView.exe %s1', orphan = true, desc = "HexView", for = "windows" },
+]
+wireshark = [
+  { run = 'Wireshark.exe %s1', orphan = true, desc = "Wireshark", for = "windows" },
+]
+hxd = [
+  { run = 'HxD.exe %s1', orphan = true, desc = "HxD", for = "windows" },
+]
+renesas_flash_programmer = [
+  { run = 'RFPV3.exe %s1', orphan = true, desc = "RenesasRFP", for = "windows" },
+]
+jflash = [
+  { run = 'JFlash.exe %s1', orphan = true, desc = "J-Flash", for = "windows" },
+]
+arxml_visualizer = [
+  { run = '"ARXML Visualizer.exe" %s1', orphan = true, desc = "ARXML", for = "windows" },
+]
+fzf_search = [
+  { run = 'ya emit plugin fzf', desc = "fzf", for = "windows" },
+]
+rsgit = [
+  { run = 'rustifiedgit.cmd', block = true, desc = "rsgit", for = "windows" },
+]
+copilot = [
+  { run = 'copilot-yazi.cmd __YAZI_CWD__ %d', orphan = true, desc = "Copilot", for = "windows" },
+]
+brave_pdf = [
+  { run = 'brave.exe --single-argument %s1', orphan = true, desc = "BravePDF", for = "windows" },
+]
+psexe = [
+  { run = 'wezterm.cmd cli spawn --cwd "%d1" -- cmd.exe /d /c pwsh.cmd -NoLogo -NoExit -File "%s1"', block = true, desc = "psexe", for = "windows" },
+]
+
+[open]
+prepend_rules = [
+  { url = "*.{ps1,PS1}", use = [ "psexe", "notepadpp", "nvim", "vscode", "reveal", "compare_selected", "hexview", "hxd", "renesas_flash_programmer", "jflash", "fzf_search", "rsgit", "copilot", "explorer", "wireshark", "arxml_visualizer", "open", "play", "extract" ] },
+  { url = "*.{pdf,PDF}", use = [ "brave_pdf", "notepadpp", "nvim", "vscode", "reveal", "compare_selected", "hexview", "hxd", "renesas_flash_programmer", "jflash", "fzf_search", "rsgit", "copilot", "explorer", "wireshark", "arxml_visualizer", "open", "play", "extract" ] },
+  { url = "*.{pcap,pcapng,cap,blf}", use = [ "wireshark", "notepadpp", "nvim", "vscode", "reveal", "compare_selected", "hexview", "hxd", "renesas_flash_programmer", "jflash", "fzf_search", "rsgit", "copilot", "explorer", "arxml_visualizer", "open", "play", "extract" ] },
+  { mime = "folder/*", use = [ "explorer", "vscode", "compare_selected", "fzf_search", "notepadpp", "nvim", "reveal", "hexview", "wireshark", "hxd", "renesas_flash_programmer", "jflash", "arxml_visualizer", "rsgit", "copilot", "open", "play", "extract" ] },
+  { url = "*.{arxml,ARXML}", use = [ "notepadpp", "nvim", "arxml_visualizer", "vscode", "reveal", "compare_selected", "hexview", "hxd", "renesas_flash_programmer", "jflash", "fzf_search", "rsgit", "copilot", "explorer", "wireshark", "open", "play", "extract" ] },
+  { mime = "text/*", use = [ "notepadpp", "nvim", "vscode", "reveal", "compare_selected", "hexview", "hxd", "renesas_flash_programmer", "jflash", "fzf_search", "rsgit", "copilot", "explorer", "wireshark", "arxml_visualizer", "open", "play", "extract" ] },
+  { mime = "application/{json,ndjson,javascript,wine-extension-ini}", use = [ "notepadpp", "nvim", "vscode", "reveal", "compare_selected", "hexview", "hxd", "renesas_flash_programmer", "jflash", "fzf_search", "rsgit", "copilot", "explorer", "wireshark", "arxml_visualizer", "open", "play", "extract" ] },
+  { mime = "inode/empty", use = [ "notepadpp", "nvim", "vscode", "reveal", "compare_selected", "hexview", "hxd", "renesas_flash_programmer", "jflash", "fzf_search", "rsgit", "copilot", "explorer", "wireshark", "arxml_visualizer", "open", "play", "extract" ] },
+  { mime = "image/*", use = [ "open", "reveal", "compare_selected", "hexview", "hxd", "renesas_flash_programmer", "jflash", "fzf_search", "rsgit", "copilot", "notepadpp", "nvim", "vscode", "explorer", "wireshark", "arxml_visualizer", "play", "extract" ] },
+  { mime = "{audio,video}/*", use = [ "play", "reveal", "compare_selected", "hexview", "hxd", "renesas_flash_programmer", "jflash", "fzf_search", "rsgit", "copilot", "open", "notepadpp", "nvim", "vscode", "explorer", "wireshark", "arxml_visualizer", "extract" ] },
+  { mime = "application/{zip,rar,7z*,tar,gzip,xz,zstd,bzip*,lzma,compress,archive,cpio,arj,xar,ms-cab*}", use = [ "extract", "reveal", "compare_selected", "hexview", "hxd", "renesas_flash_programmer", "jflash", "fzf_search", "rsgit", "copilot", "open", "play", "notepadpp", "nvim", "vscode", "explorer", "wireshark", "arxml_visualizer" ] },
+]
+append_rules = [
+  { url = "*", use = [ "notepadpp", "nvim", "vscode", "reveal", "compare_selected", "hexview", "hxd", "renesas_flash_programmer", "jflash", "fzf_search", "rsgit", "copilot", "explorer", "wireshark", "arxml_visualizer", "open", "play", "extract" ] },
+]
+
+[pick]
+open_offset = [0, 1, 80, 24]

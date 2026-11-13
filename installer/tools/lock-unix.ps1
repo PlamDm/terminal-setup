@@ -11,7 +11,7 @@ param(
     [switch]$SupplementHistoricalHarfbuzz
 )
 $ErrorActionPreference = 'Stop'
-$repository = (Get-Location).Path
+$repository = Split-Path -Parent $PSScriptRoot
 foreach ($path in @($WorkDirectory, $OutputDirectory, $ChannelDirectory)) {
     $full = [IO.Path]::GetFullPath((Join-Path $repository $path))
     if (-not $full.StartsWith($repository + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {

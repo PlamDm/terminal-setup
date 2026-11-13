@@ -137,7 +137,7 @@ function Test-PDReadOnlyBuildAvailable {
 }
 
 function Show-PDInstallDirectoryPicker {
-    param([string] $InitialPath, [switch] $SearchForMsys2)
+    param([string] $InitialPath, [switch] $SearchForMsys2, [string] $SelectionLabel = 'install folder')
     if ([Console]::IsInputRedirected -or [Console]::IsOutputRedirected) {
         throw 'Interactive directory selection requires a terminal.'
     }
@@ -199,13 +199,15 @@ function Show-PDInstallDirectoryPicker {
             if ($SearchForMsys2) {
                 [Console]::WriteLine('Choose a folder to search for MSYS2 (Enter searches this folder and descendants; Esc cancels)')
             } else {
-                [Console]::WriteLine('Select install folder (Enter selects; arrows navigate; Backspace goes up; Esc cancels)')
+                [Console]::WriteLine("Select $SelectionLabel (Enter selects; arrows navigate; Backspace goes up; Esc cancels)")
             }
             [Console]::WriteLine("Current: $current")
             if ($SearchForMsys2) {
                 [Console]::WriteLine('Searching a drive root may take a long time.')
-            } else {
+            } elseif ($SelectionLabel -eq 'install folder') {
                 [Console]::WriteLine('Choose a dedicated path without spaces. The suggested destination is not created until install.')
+            } else {
+                [Console]::WriteLine("Choose the existing $SelectionLabel directory.")
             }
             if ($listingError) { [Console]::WriteLine("Cannot list this folder: $listingError") }
             [Console]::WriteLine()

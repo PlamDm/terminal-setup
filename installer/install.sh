@@ -2,7 +2,9 @@
 # User-owned terminal tools for macOS, Linux and native Windows.
 set -euo pipefail
 PD_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-PD_ROOT="$(pwd -P)"
+PD_INSTALLER_PARENT="$(CDPATH= cd -- "$PD_DIR/.." && pwd -P)"
+PD_ROOT="$PD_INSTALLER_PARENT/personal-tools"
+unset PD_INSTALLER_PARENT
 PD_ROOT_EXPLICIT=0
 PD_USER_HOME="${PD_USER_HOME:-$HOME}"
 PD_REPO="https://github.com/PlamDm/RustifiedGit.git"
@@ -43,7 +45,7 @@ usage() {
 Usage: bash install.sh [options]
 
 Install terminal tools, Yazi helpers, Copilot CLI, VS Code and portable editors.
-Default layout: the invocation directory/{install,bin,templates,config,state,cache,tmp}.
+Default output: the repository's personal-tools/ folder beside this installer.
 By default, leaves profiles and persistent PATH unchanged. Source env-extra.sh.
 
   --interactive         Choose install folder and tools in an interactive menu.
@@ -250,20 +252,6 @@ trap 'pd_tui_restore 2>/dev/null || true; exit 130' INT
 trap 'pd_tui_restore 2>/dev/null || true; exit 143' TERM
 trap 'printf "[playground] Failed at line %s. Fix the reported error and rerun.\n" "$LINENO" >&2' ERR
 if [ "$PD_DOWNLOAD_ONLY" -ne 1 ]; then pd_write_environment; fi
-if [ "$PD_OS" != windows ] && [ "$PD_DOWNLOAD_ONLY" -ne 1 ] && [ "$PD_ROOT" != "$PD_DIR" ]; then
-  for pd_file in install.sh install.ps1 wezterm.lua; do
-    if [ ! -e "$PD_ROOT/$pd_file" ] && [ ! -L "$PD_ROOT/$pd_file" ]; then cp "$PD_DIR/$pd_file" "$PD_ROOT/$pd_file"; fi
-  done
-  for pd_directory in lib packages patches yazi; do
-    while IFS= read -r -d '' pd_file; do
-      pd_destination="$PD_ROOT/$pd_directory/${pd_file#"$PD_DIR/$pd_directory/"}"
-      if [ ! -e "$pd_destination" ] && [ ! -L "$pd_destination" ]; then
-        mkdir -p "$(dirname "$pd_destination")"
-        cp "$pd_file" "$pd_destination"
-      fi
-    done < <(find "$PD_DIR/$pd_directory" -type f -print0)
-  done
-fi
 pd_wants_unix_tools() {
   local pd_id
   for pd_id in bash git tmux yazi btop fzf; do

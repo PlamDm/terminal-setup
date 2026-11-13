@@ -150,6 +150,8 @@ class PlaygroundChecks(unittest.TestCase):
 
     def test_default_is_source_only_and_registration_is_explicit(self):
         result = subprocess.check_output([BASH, str(ROOT / "install.sh"), "--dry-run"], text=True)
+        expected_root = shell_path(ROOT.parent / "personal-tools")
+        self.assertIn("Root: " + expected_root, result)
         self.assertIn("Leave profiles and persistent PATH unchanged", result)
         activated = subprocess.check_output([BASH, str(ROOT / "install.sh"), "--dry-run", "--activate"], text=True)
         self.assertIn("Opt in to registering ", activated)
@@ -314,6 +316,92 @@ pd_write_launcher rustifiedgit "$PD_ROOT/install/rustifiedgit/bin/rustifiedgit"
                 subprocess.run([powershell, "-NoProfile", "-File", str(ROOT / "tests/check-activation.ps1"),
                                 "-ActivationFile", str(playground / "config/shell/env-extra.ps1"),
                                 "-ExpectedDirectory", str(playground / "bin")], check=True)
+
+    def test_yazi_empty_cwd_file_does_not_convert_empty_path(self):
+        with tempfile.TemporaryDirectory(prefix="pd-yazi-cwd-") as directory:
+            base = Path(directory)
+            playground = base / "managed tools root"
+            selected = playground / "selected directory"
+            selected.mkdir(parents=True)
+            cygpath_log = base / "cygpath-log"
+            generate = 'set -eu; PD_ROOT=$1; PD_OS=macos; . "$2/lib/environment.sh"; pd_write_environment'
+            subprocess.run([BASH, "-c", generate, "check", shell_path(playground), shell_path(ROOT)], check=True)
+            script = r'''
+. "$1" || exit
+cygpath() {
+  printf '%s\n' "$1" >> "$PD_TEST_CYGPATH_LOG"
+  case "$1" in
+    -m|-u)
+      if [ -z "${2:-}" ]; then
+        printf '%s\n' 'cygpath: called with an empty path' >&2
+        return 1
+      fi
+      printf '%s\n' "$2" ;;
+    *) return 2 ;;
+  esac
+}
+command() {
+  if [ "$#" -ge 2 ] && [ "$1" = -v ] && [ "$2" = yazi.cmd ]; then return 0; fi
+  if [ "$1" = yazi.cmd ]; then
+    if [ -n "$PD_TEST_YAZI_OUTPUT" ]; then
+      printf '%s' "$PD_TEST_YAZI_OUTPUT" > "$PD_YAZI_CWD_FILE"
+    else
+      printf '\n' > "$PD_YAZI_CWD_FILE"
+    fi
+    return 0
+  fi
+  builtin command "$@"
+}
+uname() { printf 'MINGW64_NT\n'; }
+before=$PWD
+PD_TEST_YAZI_OUTPUT=
+export PD_TEST_YAZI_OUTPUT
+yazi || exit
+[ "$PWD" = "$before" ] || exit 1
+PD_TEST_YAZI_OUTPUT=$PD_TEST_SELECTED_CWD
+export PD_TEST_YAZI_OUTPUT
+yazi || exit
+[ "$PWD" = "$PD_TEST_SELECTED_CWD" ]
+'''
+            environment = dict(
+                os.environ,
+                PD_TEST_CYGPATH_LOG=shell_path(cygpath_log),
+                PD_TEST_SELECTED_CWD=shell_path(selected),
+            )
+            subprocess.run(
+                [BASH, "-c", script, "check", shell_path(playground / "config/shell/env-extra.sh")],
+                env=environment, check=True,
+            )
+            self.assertEqual(cygpath_log.read_text().splitlines(), ["-m", "-m", "-u"])
+
+    def test_copilot_inline_images_are_disabled_in_seeded_settings(self):
+        with tempfile.TemporaryDirectory(prefix="pd-copilot-settings-") as directory:
+            playground = Path(directory) / "managed tools root"
+            generate = 'set -eu; PD_ROOT=$1; PD_OS=macos; . "$2/lib/environment.sh"; pd_write_environment'
+            subprocess.run([BASH, "-c", generate, "check", shell_path(playground), shell_path(ROOT)], check=True)
+            settings = json.loads((playground / "config/copilot/settings.json").read_text())
+            self.assertIs(settings.get("inlineImages"), False)
+
+    def test_yazi_full_menu_and_helpers_are_seeded(self):
+        with tempfile.TemporaryDirectory(prefix="pd-yazi-menu-") as directory:
+            playground = Path(directory) / "managed tools root"
+            generate = 'set -eu; PD_ROOT=$1; PD_OS=macos; . "$2/lib/environment.sh"; pd_write_environment'
+            subprocess.run([BASH, "-c", generate, "check", shell_path(playground), shell_path(ROOT)], check=True)
+            config = playground / "config/yazi"
+            yazi_config = (config / "yazi.toml").read_text()
+            self.assertIn('url = "*.{ps1,PS1}", use = [ "psexe",', yazi_config)
+            self.assertIn(
+                'wezterm.cmd cli spawn --cwd "%d1" -- cmd.exe /d /c pwsh.cmd -NoLogo -NoExit -File "%s1"',
+                yazi_config,
+            )
+            self.assertIn("open_offset = [0, 1, 80, 24]", yazi_config)
+            self.assertNotIn(r"C:\MTC\d_t", yazi_config)
+            for relative in (
+                "scripts/open-copilot-tab.ps1",
+                "scripts/run-copilot.ps1",
+                "plugins/compare-menu.yazi/main.lua",
+            ):
+                self.assertTrue((config / relative).is_file(), relative)
 
     @unittest.skipUnless(shutil.which("tmux"), "tmux is unavailable")
     def test_tmux_template_keeps_system_shell_unless_managed_bash_exists(self):

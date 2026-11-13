@@ -36,9 +36,19 @@ $powerShellPath = (Get-Process -Id $PID).Path
 $defaultPreview = & $powerShellPath -NoProfile -ExecutionPolicy Bypass `
     -File (Join-Path $repository 'install.ps1') -DryRun 2>&1
 Assert ($LASTEXITCODE -eq 0) 'The installer default-root dry run failed.'
-$invocationRoot = (Get-Location).ProviderPath.TrimEnd('\', '/')
-Assert (($defaultPreview -join "`n").Contains("Preview only; root: $invocationRoot")) `
-    'The Windows install root does not default to the invocation directory.'
+$expectedRoot = Join-Path (Split-Path -Parent $repository) 'personal-tools'
+Assert (($defaultPreview -join "`n").Contains("Preview only; root: $expectedRoot")) `
+    'The Windows install root does not default to the repository personal-tools folder.'
+$previousErrorActionPreference = $ErrorActionPreference
+try {
+    $ErrorActionPreference = 'Continue'
+    $invalidRootPreview = & $powerShellPath -NoProfile -ExecutionPolicy Bypass `
+        -File (Join-Path $repository 'install.ps1') -DryRun -PlaygroundRoot 'C:\invalid path' 2>&1
+    $invalidRootExitCode = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+}
+Assert ($invalidRootExitCode -ne 0) 'The installer accepted a playground path containing spaces.'
 
 $ast = [Management.Automation.Language.Parser]::ParseFile(
     (Join-Path $repository 'install.ps1'), [ref]$null, [ref]$null)

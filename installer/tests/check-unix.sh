@@ -288,12 +288,15 @@ pd_test_install_entrypoint() (
     fi
   }
   pd_ep_run "$pd_root" "$pd_source/install.sh" "$pd_test/entrypoint-first.log" \
-    --tools bash --offline --package-dir "$pd_bundle" --no-activate
+    --root "$pd_root" --tools bash --offline --package-dir "$pd_bundle" --no-activate
   [ "$(cat "$pd_root/state/conda/bash.prefix")" = "$pd_root/install/conda/bash" ]
   [ "$("$pd_root/bin/bash" --version)" = "$pd_root/install/conda/bash" ]
   [ -f "$pd_root/templates/bash/bashrc" ] && [ -f "$pd_root/config/bash/bashrc" ]
-  for pd_file in install.sh lib/unix.sh lib/environment.sh packages/artifacts.tsv patches/yazi-portable-dirs.patch yazi/yazi.toml; do
-    [ -f "$pd_root/$pd_file" ] || die "Copied root lacks $pd_file."
+  for pd_file in lib/packages.sh lib/portable.sh lib/unix.sh lib/relocate.sh packages/artifacts.tsv; do
+    [ -f "$pd_root/$pd_file" ] || die "Output lacks required relocation support: $pd_file."
+  done
+  for pd_file in install.sh install.ps1 wezterm.lua lib/environment.sh lib/interactive.sh patches yazi; do
+    [ ! -e "$pd_root/$pd_file" ] || die "Installer source was copied into output: $pd_file."
   done
   [ "$(wc -l < "$PD_EP_MAMBA_LOG")" -eq 1 ] && [ ! -e "$PD_EP_FETCH_LOG" ]
   [ "$(find "$pd_root/state/conda" -name '*.prefix' | wc -l)" -eq 1 ]
@@ -304,7 +307,7 @@ pd_test_install_entrypoint() (
   printf 'user-maintained Bash configuration\n' > "$pd_root/config/bash/bashrc"
   printf 'new missing-only seed\n' > "$pd_root/templates/bash/new-default"
   pd_ep_run "$pd_root" "$pd_source/install.sh" "$pd_test/entrypoint-rerun.log" \
-    --tools bash --offline --package-dir "$pd_bundle" --no-activate
+    --root "$pd_root" --tools bash --offline --package-dir "$pd_bundle" --no-activate
   [ "$(cat "$pd_root/templates/bash/bashrc")" = 'user-maintained Bash template' ]
   [ "$(cat "$pd_root/config/bash/bashrc")" = 'user-maintained Bash configuration' ]
   [ "$(cat "$pd_root/config/bash/new-default")" = 'new missing-only seed' ]
@@ -312,9 +315,8 @@ pd_test_install_entrypoint() (
   cmp "$pd_home/.bashrc" "$pd_test/entrypoint-profile"
 
   mv "$pd_root" "$pd_moved"
-  mv "$pd_source" "$pd_test/entrypoint-source-hidden"
-  pd_ep_run "$pd_moved" "$pd_moved/install.sh" "$pd_test/entrypoint-moved.log" \
-    --tools bash --offline --no-activate
+  pd_ep_run "$pd_moved" "$pd_source/install.sh" "$pd_test/entrypoint-moved.log" \
+    --root "$pd_moved" --tools bash --offline --no-activate
   [ "$(cat "$pd_moved/state/conda/bash.prefix")" = "$pd_moved/install/conda/bash" ]
   [ "$("$pd_moved/install/conda/bash/bin/bash")" = "$pd_moved/install/conda/bash" ]
   [ "$(cat "$pd_moved/templates/bash/bashrc")" = 'user-maintained Bash template' ]
@@ -327,8 +329,8 @@ pd_test_install_entrypoint() (
   pd_logs="$(wc -l < "$PD_EP_MAMBA_LOG")"
   mkdir "$pd_download"
   export PD_EP_ALLOW_FETCH=1
-  pd_ep_run "$pd_download" "$pd_moved/install.sh" "$pd_test/entrypoint-download.log" \
-    --tools bash --download-only --package-dir "$pd_output_bundle" --activate
+  pd_ep_run "$pd_download" "$pd_source/install.sh" "$pd_test/entrypoint-download.log" \
+    --root "$pd_download" --tools bash --download-only --package-dir "$pd_output_bundle" --activate
   [ -f "$pd_output_bundle/$pd_sha-example-1.0-0.conda" ]
   [ -f "$pd_output_bundle/$pd_mamba_sha-micromamba-2.10.0.tar.bz2" ]
   [ "$(wc -l < "$PD_EP_FETCH_LOG")" -eq 2 ]
@@ -337,7 +339,7 @@ pd_test_install_entrypoint() (
   for pd_file in activate.sh activate.ps1 templates lib packages; do [ ! -e "$pd_download/$pd_file" ]; done
   cmp "$pd_home/.bashrc" "$pd_test/entrypoint-profile"
   [ ! -e "$pd_home/.profile" ] && [ ! -e "$pd_home/.bash_profile" ] && [ ! -e "$pd_home/install" ]
-  printf 'Actual install.sh selected-only/offline/rerun/copied-root/download-only integration passed.\n'
+  printf 'Separated installer/output, selected-only/offline/rerun/download-only integration passed.\n'
 )
 pd_test_install_entrypoint
 printf 'Unix cache, lock resolution, offline linking and prefix relocation checks passed.\n'

@@ -1,0 +1,4 @@
+[[mgr.prepend_keymap]]
+on = "<Enter>"
+run = "open --interactive"
+desc = "Choose action for the selected item"
