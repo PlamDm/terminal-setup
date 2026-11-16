@@ -458,6 +458,8 @@ function Write-WindowsLaunchers {
         if ($name -eq 'rustifiedgit') {
             $lines += @(
                 'if not defined PD_DEVTOOLS_ROOT if exist "%PD_ROOT%\config\path\devtools-root.txt" for /f "usebackq delims=" %%I in ("%PD_ROOT%\config\path\devtools-root.txt") do set "PD_DEVTOOLS_ROOT=%%I"',
+                'if not defined PD_DEVTOOLS_HOME if exist "%PD_ROOT%\config\path\devtools-home.txt" for /f "usebackq delims=" %%I in ("%PD_ROOT%\config\path\devtools-home.txt") do set "PD_DEVTOOLS_HOME=%%I"',
+                'if defined PD_DEVTOOLS_HOME set "HOME=%PD_DEVTOOLS_HOME%"',
                 'if defined PD_DEVTOOLS_ROOT if exist "%PD_DEVTOOLS_ROOT%\bin\PortableGit\cmd\git.exe" set "PATH=%PD_DEVTOOLS_ROOT%\bin\PortableGit\cmd;%PATH%"'
             )
         }

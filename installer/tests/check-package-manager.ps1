@@ -13,7 +13,7 @@ $msysRoot = Join-Path $installRoot 'msys2'
 $PackageDirectory = Join-Path $base 'bundle'
 $Offline = $true
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-$envNames = @('TEMP', 'TMP', 'HOME', 'XDG_CONFIG_HOME', 'PD_PWSH_EXE', 'PD_DEVTOOLS_ROOT')
+$envNames = @('TEMP', 'TMP', 'HOME', 'XDG_CONFIG_HOME', 'PD_PWSH_EXE', 'PD_DEVTOOLS_ROOT', 'PD_DEVTOOLS_HOME')
 $saved = @{}
 foreach ($name in $envNames) { $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 function Assert([bool] $Condition, [string] $Message) { if (-not $Condition) { throw $Message } }
@@ -71,15 +71,18 @@ public class PackageFixture {
     }, $true)
     Set-Item Function:Write-WindowsLaunchers $definition.Body.GetScriptBlock()
     $devtoolsRoot = Join-Path $base 'd_t'
+    $devtoolsHome = Join-Path $devtoolsRoot 'pdamyan'
     $devtoolsGitBin = Join-Path $devtoolsRoot 'bin\PortableGit\cmd'
+    [IO.Directory]::CreateDirectory($devtoolsHome) | Out-Null
     [IO.Directory]::CreateDirectory($devtoolsGitBin) | Out-Null
     [IO.File]::WriteAllText((Join-Path $devtoolsGitBin 'git.exe'), 'fixture')
     [IO.Directory]::CreateDirectory((Join-Path $PlaygroundRoot 'config\path')) | Out-Null
     [IO.File]::WriteAllText((Join-Path $PlaygroundRoot 'config\path\devtools-root.txt'), $devtoolsRoot)
+    [IO.File]::WriteAllText((Join-Path $PlaygroundRoot 'config\path\devtools-home.txt'), $devtoolsHome)
     [IO.File]::WriteAllText((Join-Path $PlaygroundRoot 'state\windows-commands.tsv'),
         "fixture`tinstall\fixture\1\fixture.exe`ngit`tinstall\fixture\1\fixture.exe`nrustifiedgit`tinstall\fixture\1\fixture.exe`n")
     $env:HOME = 'caller-home'; $env:XDG_CONFIG_HOME = 'caller-config'
-    $env:PD_DEVTOOLS_ROOT = $null
+    $env:PD_DEVTOOLS_ROOT = $null; $env:PD_DEVTOOLS_HOME = $null
     Write-WindowsLaunchers
     $moved = Join-Path $base 'moved'
     Move-Item -LiteralPath $PlaygroundRoot -Destination $moved
@@ -96,6 +99,15 @@ public class PackageFixture {
     Assert ($LASTEXITCODE -eq 0) 'RustifiedGit launcher could not execute.'
     Assert (($output -join "`n").Contains("path=$devtoolsGitBin;")) `
         'RustifiedGit did not prioritize the configured Windows Git executable.'
+    Assert (($output -join "`n").Contains("home=$devtoolsHome")) `
+        'RustifiedGit did not use the configured d_t home.'
+    $inheritedDevtoolsHome = Join-Path $base 'inherited-home'
+    $env:PD_DEVTOOLS_HOME = $inheritedDevtoolsHome
+    $output = & (Join-Path $moved 'bin\rustifiedgit.cmd')
+    Assert ($LASTEXITCODE -eq 0) 'RustifiedGit launcher failed with an inherited d_t home.'
+    Assert (($output -join "`n").Contains("home=$inheritedDevtoolsHome")) `
+        'RustifiedGit did not honor the inherited d_t home.'
+    $env:PD_DEVTOOLS_HOME = $null
     $PlaygroundRoot = $moved
     $installRoot = Join-Path $moved 'install'
     $binDirectory = Join-Path $moved 'bin'
