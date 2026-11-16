@@ -14,7 +14,7 @@ pd_install_rust() {
       log "Installing the Rust toolchain inside playground."
       fetch https://sh.rustup.rs "$PD_TEMP/rustup-init.sh"
       env -u RUSTUP_TOOLCHAIN CARGO_HOME="$PD_INSTALL/rust" RUSTUP_HOME="$PD_INSTALL/rustup" \
-        sh "$PD_TEMP/rustup-init.sh" -y --no-modify-path --profile minimal --default-toolchain 1.88.0
+        sh "$PD_TEMP/rustup-init.sh" -y --no-modify-path --profile minimal --default-toolchain 1.99.1
     fi
   fi
   [ -x "$PD_CARGO" ] && [ -x "$PD_RUSTC" ] || die "Rust compiler or Cargo is missing from $PD_INSTALL."
